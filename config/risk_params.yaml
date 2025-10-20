@@ -1,0 +1,59 @@
+# Risk Management Parameters
+
+# Position Sizing
+position_sizing:
+  max_risk_per_trade_percent: 2.0  # Max 2% of account per trade
+  max_total_exposure_multiplier: 3.0  # Max 3x account value in total notional
+  max_position_per_coin_percent: 30.0  # Max 30% of account per coin
+
+# Leverage Settings
+leverage:
+  min: 5
+  max: 15
+  default: 10
+  confidence_mapping:  # Adjust leverage based on AI confidence
+    0.9: 15
+    0.8: 12
+    0.7: 10
+    0.6: 8
+    0.5: 5
+
+# Stop Loss & Take Profit
+exit_strategy:
+  min_stop_loss_percent: 3.0  # Minimum SL distance
+  max_stop_loss_percent: 10.0  # Maximum SL distance
+  min_risk_reward_ratio: 1.5  # Min 1.5:1 RR
+  trailing_stop_enabled: true
+  trailing_stop_activation_percent: 5.0
+  trailing_stop_distance_percent: 2.0
+
+# Correlation & Diversification
+diversification:
+  max_correlation_threshold: 0.7  # Don't open if correlation > 0.7
+  check_correlation: true
+  
+# Market Condition Checks
+market_conditions:
+  max_volatility_zscore: 3.0  # Pause trading if volatility Z-score > 3
+  min_liquidity_usd: 1000000  # Min 24h volume
+  check_funding_rate: true
+  max_funding_rate_percent: 0.1  # Pause if funding > 0.1%
+
+# Drawdown Protection
+drawdown_protection:
+  max_daily_drawdown_percent: 10.0  # Stop trading if daily DD > 10%
+  max_total_drawdown_percent: 25.0  # Emergency shutdown
+  cooldown_period_minutes: 60  # Cool down after max DD hit
+
+# Trade Frequency Limits
+frequency_limits:
+  max_trades_per_hour: 20
+  max_trades_per_day: 100
+  min_time_between_same_coin_minutes: 5
+
+# Invalidation Conditions
+invalidation:
+  enable_auto_invalidation: true
+  check_interval_minutes: 1
+  use_3min_candle_close: true  # Match nof1.ai logic
+

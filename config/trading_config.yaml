@@ -1,0 +1,72 @@
+# AI Trading System Configuration
+
+# Exchange Settings
+exchange:
+  name: "binance"
+  testnet: true  # Use testnet for paper trading
+  api_key: ""  # Set via environment variable
+  api_secret: ""  # Set via environment variable
+  
+# Trading Pairs
+trading_pairs:
+  - BTC/USDT:USDT
+  - ETH/USDT:USDT
+  - SOL/USDT:USDT
+  - BNB/USDT:USDT
+  - XRP/USDT:USDT
+  - DOGE/USDT:USDT
+
+# Timeframes for data collection
+timeframes:
+  intraday: "3m"  # Main decision timeframe
+  short: "1m"
+  medium: "15m"
+  long: "4h"
+
+# AI Decision Engine
+ai:
+  provider: "openai"  # openai, anthropic, local
+  model: "gpt-4-turbo-preview"
+  base_url: ""  # 留空使用官方API，或填入第三方OpenAI兼容API地址
+                # 示例：https://api.oneapi.com/v1 (国内中转)
+                # 示例：http://localhost:8000/v1 (本地vLLM)
+                # 注：也可通过环境变量OPENAI_BASE_URL配置
+  temperature: 0.3
+  max_tokens: 4000
+  decision_interval_minutes: 2.6  # Match nof1.ai frequency
+  enable_chain_of_thought: true
+  multi_agent_validation: false  # Enable for critical decisions
+
+# Paper Trading Settings
+paper_trading:
+  enabled: true
+  initial_balance: 10000.0  # USDT
+  slippage_percent: 0.1
+  commission_percent: 0.04  # 0.04% maker/taker
+
+# Database
+database:
+  host: "localhost"
+  port: 5432
+  name: "trading_db"
+  user: "trading_user"
+  password: ""  # Set via environment variable
+
+# Redis
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+
+# Monitoring
+monitoring:
+  telegram_bot_token: ""  # Set via environment variable
+  telegram_chat_id: ""  # Set via environment variable
+  enable_alerts: true
+  
+# Logging
+logging:
+  level: "INFO"
+  format: "json"
+  file: "logs/trading.log"
+
