@@ -1,4 +1,6 @@
-const API_BASE = 'http://localhost:8000'
+// 使用相对路径，通过 Next.js rewrites 代理到后端
+// 在 next.config.js 中配置了 /api/* 会转发到 NEXT_PUBLIC_API_URL
+const API_BASE = ''  // 空字符串表示使用相对路径
 
 export async function fetchAccount() {
   const res = await fetch(`${API_BASE}/api/account`)
