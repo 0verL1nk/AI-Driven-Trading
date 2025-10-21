@@ -18,6 +18,7 @@ class PortfolioManager:
         self.equity_curve: List[Dict] = []
         self.start_time = datetime.now()
         self._initial_balance_set = (initial_balance is not None)
+        self._last_total_value = initial_balance or 0  # Cache last calculated total value
     
     def calculate_account_state(
         self,
@@ -67,6 +68,9 @@ class PortfolioManager:
             'unrealized_pnl': total_unrealized_pnl
         })
         
+        # Cache the total value for later use
+        self._last_total_value = total_value
+        
         return {
             'cash': available_cash,
             'total_value': total_value,
@@ -75,6 +79,15 @@ class PortfolioManager:
             'sharpe_ratio': sharpe_ratio,
             'num_positions': len(positions)
         }
+    
+    def get_total_value(self) -> float:
+        """
+        Get the last calculated total account value.
+        
+        Returns:
+            float: Total account value in USDT
+        """
+        return self._last_total_value
     
     def format_positions_for_prompt(self, positions: List[Dict]) -> List[Dict]:
         """
