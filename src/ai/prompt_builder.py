@@ -4,6 +4,8 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from .output_parser import trading_parser
+
 logger = logging.getLogger(__name__)
 
 
@@ -138,7 +140,76 @@ CURRENT MARKET STATE FOR ALL COINS
         else:
             section += "No current positions.\n\n"
         
-        section += f"Sharpe Ratio: {account.get('sharpe_ratio', 0):.3f}\n"
+        section += f"Sharpe Ratio: {account.get('sharpe_ratio', 0):.3f}\n\n"
+        
+        # Add explicit risk management constraints
+        from ..config import trading_config
+        total_value = account.get('total_value', 10000)
+        max_risk_percent = trading_config.risk_params['position_sizing']['max_risk_per_trade_percent']
+        max_risk_usd = total_value * (max_risk_percent / 100)
+        min_leverage = trading_config.risk_params['leverage']['min']
+        max_leverage = trading_config.risk_params['leverage']['max']
+        min_rr_ratio = trading_config.risk_params['exit_strategy']['min_risk_reward_ratio']
+        
+        section += "=" * 80 + "\n"
+        section += "RISK MANAGEMENT RULES (MUST FOLLOW)\n"
+        section += "=" * 80 + "\n"
+        section += f"1. Maximum risk per trade: {max_risk_percent}% of account = ${max_risk_usd:.2f} USD\n"
+        section += f"   ⚠️ IMPORTANT: Your 'risk_usd' must be LESS THAN ${max_risk_usd:.2f} (not equal to it)\n\n"
+        
+        section += f"2. Leverage range: {min_leverage}x to {max_leverage}x (choose based on confidence)\n"
+        section += f"   - High confidence (0.75-1.0): use 12-15x\n"
+        section += f"   - Medium confidence (0.65-0.74): use 8-11x\n"
+        section += f"   - Low confidence (0.50-0.64): use 5-7x\n\n"
+        
+        section += f"3. Minimum risk/reward ratio: {min_rr_ratio}:1 ⚠️ THIS IS CRITICAL!\n"
+        section += f"   How to calculate (MUST follow this formula):\n"
+        section += f"   \n"
+        section += f"   For LONG positions:\n"
+        section += f"     - Risk per unit = entry_price - stop_loss\n"
+        section += f"     - Reward per unit = profit_target - entry_price\n"
+        section += f"     - Risk/Reward Ratio = Reward / Risk\n"
+        section += f"   \n"
+        section += f"   For SHORT positions:\n"
+        section += f"     - Risk per unit = stop_loss - entry_price\n"
+        section += f"     - Reward per unit = entry_price - profit_target\n"
+        section += f"     - Risk/Reward Ratio = Reward / Risk\n"
+        section += f"   \n"
+        section += f"   ✅ EXAMPLE (LONG BTC at $100,000):\n"
+        section += f"     - Entry: $100,000\n"
+        section += f"     - Stop Loss: $98,000 (2% below entry)\n"
+        section += f"     - Profit Target: $103,000 (3% above entry)\n"
+        section += f"     - Risk = $100,000 - $98,000 = $2,000\n"
+        section += f"     - Reward = $103,000 - $100,000 = $3,000\n"
+        section += f"     - R/R Ratio = $3,000 / $2,000 = 1.5 ✅ VALID\n"
+        section += f"   \n"
+        section += f"   ❌ BAD EXAMPLE (R/R too low):\n"
+        section += f"     - Entry: $100,000\n"
+        section += f"     - Stop Loss: $98,000 (risk = $2,000)\n"
+        section += f"     - Profit Target: $101,000 (reward = $1,000)\n"
+        section += f"     - R/R Ratio = $1,000 / $2,000 = 0.5 ❌ REJECTED!\n"
+        section += f"   \n"
+        section += f"   💡 TIP: To meet {min_rr_ratio}:1 ratio:\n"
+        section += f"     profit_target distance >= {min_rr_ratio} × stop_loss distance\n\n"
+        
+        section += f"4. Every 'entry' signal MUST have:\n"
+        section += f"   - stop_loss: Price level (must be < entry for long, > entry for short)\n"
+        section += f"   - profit_target: Price level (ensure R/R >= {min_rr_ratio}:1)\n"
+        section += f"   - invalidation_condition: Clear condition like 'If price closes below X on 3-min candle'\n"
+        section += f"   - All prices must be realistic and based on current market price\n\n"
+        
+        section += f"5. For 'no_action' or 'hold' signals, you can set:\n"
+        section += f"   - risk_usd = 0\n"
+        section += f"   - leverage = {min_leverage} (minimum allowed)\n"
+        section += f"   - confidence >= 0.5\n"
+        section += f"   - stop_loss and profit_target can be 0 or null\n"
+        section += "=" * 80 + "\n\n"
+        
+        # Add Langchain auto-generated format instructions
+        section += "OUTPUT FORMAT INSTRUCTIONS\n"
+        section += "=" * 80 + "\n"
+        section += trading_parser.get_format_instructions()
+        section += "\n" + "=" * 80 + "\n"
         
         return section
 

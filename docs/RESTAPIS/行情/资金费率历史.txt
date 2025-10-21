@@ -1,0 +1,33 @@
+查询资金费率历史
+接口描述
+查询资金费率历史
+
+HTTP请求
+GET /fapi/v1/fundingRate
+
+请求权重
+和GET /fapi/v1/fundingInfo共享500/5min/IP
+
+请求参数
+名称	类型	是否必需	描述
+symbol	STRING	NO	交易对
+startTime	LONG	NO	起始时间
+endTime	LONG	NO	结束时间
+limit	INT	NO	默认值:100 最大值:1000
+如果 startTime 和 endTime 都未发送, 返回最近200条数据.
+如果 startTime 和 endTime 之间的数据量大于 limit, 返回 startTime + limit情况下的数据。
+响应示例
+[
+	{
+    	"symbol": "BTCUSDT",			// 交易对
+    	"fundingRate": "-0.03750000",	// 资金费率
+    	"fundingTime": 1570608000000,	// 资金费时间
+        "markPrice": "34287.54619963"   // 资金费对应标记价格
+	},
+	{
+   		"symbol": "BTCUSDT",
+    	"fundingRate": "0.00010000",
+    	"fundingTime": 1570636800000,
+        "markPrice": "34287.54619963"   // 资金费对应标记价格
+	}
+]

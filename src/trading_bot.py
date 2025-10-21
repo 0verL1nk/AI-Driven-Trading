@@ -7,6 +7,7 @@ from typing import Dict, List
 
 from .config import settings, trading_config
 from .data.exchange_client import ExchangeClient
+from .data.websocket_client import BinanceWebSocketClient
 from .data.indicator_engine import IndicatorEngine
 from .ai.prompt_builder import PromptBuilder
 from .ai.llm_interface import TradingLLM
@@ -14,6 +15,7 @@ from .ai.decision_validator import DecisionValidator
 from .execution.order_manager import OrderManager
 from .execution.portfolio_manager import PortfolioManager
 from .execution.paper_trading import PaperTradingEngine
+from .database import TradingDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +35,18 @@ class TradingBot:
     
     def __init__(self):
         # Initialize components
+        # Always use ExchangeClient for real market data
+        self.data_client = ExchangeClient()
+        
         if settings.enable_paper_trading:
             logger.info("Running in PAPER TRADING mode")
             paper_balance = trading_config.trading_config['paper_trading']['initial_balance']
+            # Use PaperTradingEngine for simulated order execution
             self.exchange = PaperTradingEngine(initial_balance=paper_balance)
         else:
             logger.info("Running in LIVE TRADING mode")
-            self.exchange = ExchangeClient()
+            # Use real ExchangeClient for actual order execution
+            self.exchange = self.data_client
         
         self.indicator_engine = IndicatorEngine()
         self.prompt_builder = PromptBuilder()
@@ -56,11 +63,31 @@ class TradingBot:
         self.order_manager = OrderManager(self.exchange)
         
         # Get initial balance
-        initial_balance = trading_config.trading_config['paper_trading']['initial_balance']
+        # For paper trading: use config file
+        # For Testnet/Live: will be set from first account fetch
+        if settings.enable_paper_trading:
+            initial_balance = trading_config.trading_config['paper_trading']['initial_balance']
+        else:
+            # For live/testnet, will be initialized from real account balance
+            initial_balance = None  # Will be set on first fetch
+        
         self.portfolio = PortfolioManager(initial_balance=initial_balance)
+        
+        # Initialize database
+        self.db = TradingDatabase()
+        logger.info("Database initialized for monitoring")
+        
+        # Initialize WebSocket client for real-time data
+        self.ws_client = BinanceWebSocketClient()
+        logger.info("WebSocket client initialized for real-time data")
+        
+        # 缓存最新的市场数据（从WebSocket更新）
+        self.latest_prices = {}
+        self.latest_klines = {}
         
         self.running = False
         self.decision_interval = trading_config.decision_interval_minutes * 60  # Convert to seconds
+        self.price_update_interval = 3  # 价格更新间隔（秒）- 高频更新
     
     async def start(self):
         """Start the trading bot."""
@@ -68,20 +95,86 @@ class TradingBot:
         logger.info("AI TRADING BOT STARTING")
         logger.info("=" * 60)
         
-        # Load markets
-        if not settings.enable_paper_trading:
-            await self.exchange.load_markets()
-        
         self.running = True
         
+        # 启动WebSocket数据流（不阻塞）
+        symbols = [pair.split('/')[0] + 'USDT' for pair in trading_config.trading_pairs]
+        logger.info(f"Starting WebSocket for {len(symbols)} symbols...")
+        asyncio.create_task(self.start_websocket_streams(symbols))
+        
+        # 等待WebSocket连接建立
+        await asyncio.sleep(3)
+        logger.info("✅ WebSocket streams started")
+        
         try:
-            await self.run_trading_loop()
+            # 启动两个并行任务
+            await asyncio.gather(
+                self.run_price_update_loop(),  # 高频价格更新（每3秒）
+                self.run_trading_loop(),        # 低频AI决策（每2.6分钟）
+            )
         except KeyboardInterrupt:
             logger.info("Received shutdown signal")
+            raise  # Re-raise to be handled in main.py
+        except asyncio.CancelledError:
+            logger.info("Trading loop cancelled")
+            raise  # Re-raise to be handled in main.py
         except Exception as e:
             logger.error(f"Fatal error in trading loop: {e}", exc_info=True)
-        finally:
             await self.shutdown()
+            raise
+    
+    async def start_websocket_streams(self, symbols: List[str]):
+        """启动WebSocket数据流"""
+        async def on_kline(symbol: str, kline_data: Dict):
+            """K线数据回调"""
+            if kline_data['is_closed']:  # 只处理已完成的K线
+                self.latest_klines[symbol] = kline_data
+                logger.debug(f"Updated kline for {symbol}: ${kline_data['close']:.2f}")
+        
+        async def on_ticker(symbol: str, ticker_data: Dict):
+            """Ticker数据回调"""
+            # 只存储价格值，不存储整个字典
+            self.latest_prices[symbol] = float(ticker_data.get('price', ticker_data.get('last', 0)))
+            logger.debug(f"Updated price for {symbol}: ${self.latest_prices[symbol]:.2f}")
+        
+        # 启动K线和Ticker流（并行）
+        await asyncio.gather(
+            self.ws_client.subscribe_klines(symbols, '3m', on_kline),
+            self.ws_client.subscribe_ticker(symbols, on_ticker)
+        )
+    
+    async def run_price_update_loop(self):
+        """高频价格更新循环 - 每3秒更新一次数据库（供前端显示）"""
+        logger.info("🔄 Starting high-frequency price update loop (every 3s)")
+        
+        while self.running:
+            try:
+                # 从缓存的WebSocket数据更新数据库
+                if self.latest_prices:
+                    for symbol, price in self.latest_prices.items():
+                        # 从symbol提取coin名称（如BTCUSDT -> BTC）
+                        coin = symbol.replace('USDT', '').replace('usdt', '')
+                        
+                        # 获取额外的市场数据（如果有）
+                        price_data = {
+                            'price': float(price),
+                            'rsi_14': 0,  # 暂时使用0，完整数据在AI循环中更新
+                            'macd': 0,
+                            'funding_rate': 0,
+                            'open_interest': 0
+                        }
+                        
+                        # 保存到数据库供前端查询
+                        self.db.save_coin_price(coin, price_data)
+                    
+                    logger.debug(f"💾 Updated prices for {len(self.latest_prices)} coins")
+                
+                # 等待3秒
+                await asyncio.sleep(self.price_update_interval)
+                
+            except Exception as e:
+                logger.error(f"Error in price update loop: {e}")
+                await asyncio.sleep(self.price_update_interval)
     
     async def run_trading_loop(self):
         """Main trading loop."""
@@ -110,12 +203,25 @@ class TradingBot:
                 logger.info(f"Return: {account_state['total_return']:.2f}%")
                 logger.info(f"Positions: {account_state['num_positions']}")
                 
+                # Save account state to database
+                self.db.save_account_state(account_state)
+                
+                # Save market prices to database (for frontend display)
+                current_prices = {}
+                for coin, data in market_data.items():
+                    latest = data['intraday_df'].iloc[-1]
+                    price_data = {
+                        'price': float(latest['close']),
+                        'rsi_14': float(latest.get('rsi_14', 0)),
+                        'macd': float(latest.get('macd', 0)),
+                        'funding_rate': float(data.get('funding_rate', 0)),
+                        'open_interest': float(data.get('open_interest', 0))
+                    }
+                    self.db.save_coin_price(coin, price_data)
+                    current_prices[coin] = price_data['price']
+                
                 # Step 3: Check invalidation conditions
                 logger.info("Step 3: Checking invalidation conditions...")
-                current_prices = {
-                    coin: data['intraday_df'].iloc[-1]['close']
-                    for coin, data in market_data.items()
-                }
                 
                 to_invalidate = await self.order_manager.check_invalidation_conditions(
                     formatted_positions,
@@ -143,33 +249,72 @@ class TradingBot:
                 
                 # Step 5: Get AI decision
                 logger.info("Step 5: Requesting AI decision...")
-                decisions = await self.llm.decide(
-                    prompt,
-                    temperature=trading_config.trading_config['ai']['temperature'],
-                    max_tokens=trading_config.trading_config['ai']['max_tokens']
-                )
+                # Get all configured LLM parameters (temperature, max_tokens, stream, thinking_budget, etc.)
+                generation_kwargs = trading_config.get_ai_generation_kwargs()
+                llm_result = await self.llm.decide(prompt, **generation_kwargs)
+                
+                # Extract decisions and thinking from result
+                decisions = llm_result.get('decisions', {})
+                thinking = llm_result.get('thinking', '')
+                
+                if thinking:
+                    logger.info(f"💭 AI Thinking: {thinking[:200]}..." if len(thinking) > 200 else f"💭 AI Thinking: {thinking}")
                 
                 logger.info(f"Received decisions for {len(decisions)} coins")
                 
                 # Step 6: Validate decisions
                 logger.info("Step 6: Validating decisions...")
+                
+                # Check if decisions is valid
+                if not isinstance(decisions, dict):
+                    logger.error(f"Invalid decisions format: expected dict, got {type(decisions)}")
+                    logger.error(f"Decisions content: {str(decisions)[:500]}")
+                    decisions = {}
+                
+                # Filter out invalid entries (non-dict values)
+                valid_decisions = {}
+                for coin, decision in decisions.items():
+                    if isinstance(decision, dict):
+                        valid_decisions[coin] = decision
+                    else:
+                        logger.warning(f"Skipping {coin}: decision is {type(decision)}, not dict")
+                
                 validated_decisions = self.validator.validate_all_decisions(
-                    decisions,
+                    valid_decisions,
                     current_prices,
                     account_state['total_value']
                 )
                 
-                logger.info(f"Validated {len(validated_decisions)}/{len(decisions)} decisions")
+                logger.info(f"Validated {len(validated_decisions)}/{len(valid_decisions)} decisions")
+                
+                # Save AI decisions to database (with thinking)
+                for coin, decision in valid_decisions.items():
+                    try:
+                        self.db.save_ai_decision(coin, decision, thinking)
+                    except Exception as e:
+                        logger.error(f"Failed to save decision for {coin}: {e}")
                 
                 # Step 7: Execute trades
                 logger.info("Step 7: Executing trades...")
-                await self.execute_decisions(validated_decisions, formatted_positions, current_prices)
+                execution_summary = await self.execute_decisions(validated_decisions, formatted_positions, current_prices)
+                
+                # Log execution summary
+                total_actions = sum(execution_summary.values())
+                if total_actions > 0:
+                    logger.info(f"✅ Execution Summary: "
+                              f"{execution_summary['entries']} entries, "
+                              f"{execution_summary['closes']} closes, "
+                              f"{execution_summary['holds']} holds, "
+                              f"{execution_summary['no_actions']} no-actions")
+                else:
+                    logger.info("ℹ️  No trades executed this cycle")
                 
                 # Step 8: Log performance
                 performance = self.portfolio.get_performance_metrics()
                 if performance:
                     logger.info(f"\nPerformance Summary:")
-                    logger.info(f"  Total Trades: {performance['total_trades']}")
+                    logger.info(f"  Current Positions: {len(formatted_positions)}")  # 当前持仓数
+                    logger.info(f"  Completed Trades: {performance['total_trades']}")  # 已完成交易数
                     logger.info(f"  Win Rate: {performance['win_rate']:.1f}%")
                     logger.info(f"  Total PnL: ${performance['total_pnl']:.2f}")
                     logger.info(f"  Max Drawdown: {performance['max_drawdown']:.2f}%")
@@ -194,29 +339,38 @@ class TradingBot:
             coin = pair.split('/')[0]  # Extract 'BTC' from 'BTC/USDT:USDT'
             
             try:
-                # Fetch 3-minute intraday data
-                intraday_df = await self.exchange.fetch_ohlcv(
+                # 使用CCXT获取历史数据（更稳定）
+                # WebSocket用于实时价格更新，不用于历史数据
+                intraday_df = await self.data_client.fetch_ohlcv(
                     symbol=pair,
                     timeframe='3m',
                     limit=100
                 )
                 
+                if intraday_df.empty:
+                    logger.warning(f"No data for {coin}, skipping")
+                    continue
+                
                 # Add indicators
                 intraday_df = self.indicator_engine.add_all_indicators(intraday_df)
                 
                 # Fetch 4-hour longer-term data
-                longterm_df = await self.exchange.fetch_ohlcv(
+                longterm_df = await self.data_client.fetch_ohlcv(
                     symbol=pair,
                     timeframe='4h',
                     limit=100
                 )
                 
+                if longterm_df.empty:
+                    logger.warning(f"No longterm data for {coin}, skipping")
+                    continue
+                
                 # Add indicators to long-term data
                 longterm_df = self.indicator_engine.add_all_indicators(longterm_df)
                 
-                # Fetch funding rate and open interest
-                funding_data = await self.exchange.fetch_funding_rate(pair)
-                oi_data = await self.exchange.fetch_open_interest(pair)
+                # Fetch funding rate and open interest from data client
+                funding_data = await self.data_client.fetch_funding_rate(pair)
+                oi_data = await self.data_client.fetch_open_interest(pair)
                 
                 # Calculate OI average (last 24 hours approximation)
                 oi_average = oi_data.get('open_interest', 0) * 0.98  # Placeholder
@@ -228,6 +382,16 @@ class TradingBot:
                     'open_interest': oi_data.get('open_interest', 0),
                     'oi_average': oi_average
                 }
+                
+                # Save price data to database
+                latest = intraday_df.iloc[-1]
+                self.db.save_coin_price(coin, {
+                    'price': latest['close'],
+                    'rsi_14': latest.get('rsi_14', 0),
+                    'macd': latest.get('macd', 0),
+                    'funding_rate': funding_data.get('funding_rate', 0),
+                    'open_interest': oi_data.get('open_interest', 0)
+                })
                 
                 logger.debug(f"Collected data for {coin}")
             
@@ -241,9 +405,17 @@ class TradingBot:
         decisions: Dict[str, Dict],
         current_positions: List[Dict],
         current_prices: Dict[str, float]
-    ):
-        """Execute validated trading decisions."""
+    ) -> Dict[str, int]:
+        """
+        Execute validated trading decisions.
+        
+        Returns:
+            Dict with execution summary: {'entries': int, 'closes': int, 'holds': int, 'no_actions': int}
+        """
         position_map = {pos['symbol']: pos for pos in current_positions}
+        
+        # Track execution summary
+        summary = {'entries': 0, 'closes': 0, 'holds': 0, 'no_actions': 0}
         
         for coin, decision in decisions.items():
             if 'trade_signal_args' not in decision:
@@ -257,6 +429,7 @@ class TradingBot:
                 if signal == 'entry':
                     # Open new position
                     await self.execute_entry(coin, symbol, args, current_prices[coin])
+                    summary['entries'] += 1
                 
                 elif signal == 'close_position':
                     # Close existing position
@@ -266,13 +439,23 @@ class TradingBot:
                             symbol,
                             position_map[coin]
                         )
+                        summary['closes'] += 1
                         logger.info(f"Closed position for {coin}")
+                    else:
+                        logger.warning(f"Cannot close {coin}: no existing position")
                 
                 elif signal == 'hold':
+                    summary['holds'] += 1
                     logger.debug(f"Holding position for {coin}")
+                
+                elif signal == 'no_action':
+                    summary['no_actions'] += 1
+                    logger.debug(f"No action for {coin}")
                 
             except Exception as e:
                 logger.error(f"Failed to execute {signal} for {coin}: {e}")
+        
+        return summary
     
     async def execute_entry(
         self,
@@ -346,6 +529,30 @@ class TradingBot:
         #     coin = symbol.split('/')[0]
         #     await self.order_manager.execute_close(coin, symbol, pos)
         
-        await self.exchange.close()
-        logger.info("Shutdown complete")
+        # 停止WebSocket（现在是异步的）
+        if hasattr(self, 'ws_client'):
+            try:
+                await self.ws_client.stop()
+                logger.debug("WebSocket client stopped")
+            except Exception as e:
+                logger.debug(f"Error stopping WebSocket client: {e}")
+        
+        # Close exchange connections
+        try:
+            if hasattr(self.data_client, 'exchange'):
+                await self.data_client.exchange.close()
+                logger.debug("Data client connection closed")
+        except Exception as e:
+            logger.debug(f"Error closing data client: {e}")
+        
+        # Close exchange if it's different from data_client
+        if self.exchange != self.data_client:
+            try:
+                if hasattr(self.exchange, 'close'):
+                    await self.exchange.close()
+                    logger.debug("Exchange connection closed")
+            except Exception as e:
+                logger.debug(f"Error closing exchange: {e}")
+        
+        logger.info("✅ Shutdown complete")
 

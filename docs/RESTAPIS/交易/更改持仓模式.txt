@@ -1,0 +1,20 @@
+更改持仓模式(TRADE)
+接口描述
+变换用户在 所有symbol 合约上的持仓模式：双向持仓或单向持仓。
+
+HTTP请求
+POST /fapi/v1/positionSide/dual
+
+请求权重
+1
+
+请求参数
+名称	类型	是否必需	描述
+dualSidePosition	STRING	YES	"true": 双向持仓模式；"false": 单向持仓模式
+recvWindow	LONG	NO	
+timestamp	LONG	YES	
+响应示例
+{
+	"code": 200,
+	"msg": "success"
+}

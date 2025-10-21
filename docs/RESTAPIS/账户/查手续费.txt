@@ -1,0 +1,21 @@
+用户手续费率 (USER_DATA)
+接口描述
+查询用户手续费率
+
+HTTP请求
+GET /fapi/v1/commissionRate
+
+请求权重
+20
+
+请求参数
+名称	类型	是否必需	描述
+symbol	STRING	YES	
+recvWindow	LONG	NO	
+timestamp	LONG	YES	
+响应示例
+{
+	"symbol": "BTCUSDT",
+  	"makerCommissionRate": "0.0002",  // 0.02%
+  	"takerCommissionRate": "0.0004"   // 0.04%
+}

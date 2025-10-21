@@ -1,0 +1,19 @@
+获取未平仓合约数
+接口描述
+获取未平仓合约数
+
+HTTP请求
+GET /fapi/v1/openInterest
+
+请求权重
+1
+
+请求参数
+名称	类型	是否必需	描述
+symbol	STRING	YES	交易对
+响应示例
+{
+	"openInterest": "10659.509", // 未平仓合约数量
+	"symbol": "BTCUSDT",	// 交易对
+	"time": 1589437530011   // 撮合引擎时间
+}

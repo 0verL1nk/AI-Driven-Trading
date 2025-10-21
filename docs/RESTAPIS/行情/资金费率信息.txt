@@ -1,0 +1,21 @@
+查询资金费率信息
+接口描述
+查询资金费率信息，接口仅返回FundingRateCap/FundingRateFloor/fundingIntervalHours等被特殊调整过的交易对，没调整过的不返回。
+
+HTTP请求
+GET /fapi/v1/fundingInfo
+
+请求权重
+0 和GET /fapi/v1/fundingRate共享500/5min/IP
+
+请求参数
+响应示例
+[
+    {
+        "symbol": "BLZUSDT",
+        "adjustedFundingRateCap": "0.02500000",
+        "adjustedFundingRateFloor": "-0.02500000",
+        "fundingIntervalHours": 8,
+        "disclaimer": false
+    }
+]

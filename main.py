@@ -96,6 +96,12 @@ async def main():
         await bot.start()
     except KeyboardInterrupt:
         logger.info("\nReceived interrupt signal, shutting down...")
+        # Gracefully shutdown the bot
+        await bot.shutdown()
+    except asyncio.CancelledError:
+        # Handle asyncio task cancellation (from Ctrl+C)
+        logger.info("Tasks cancelled, shutting down gracefully...")
+        await bot.shutdown()
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
         sys.exit(1)

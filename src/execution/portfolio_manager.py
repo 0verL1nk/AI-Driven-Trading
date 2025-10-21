@@ -12,11 +12,12 @@ logger = logging.getLogger(__name__)
 class PortfolioManager:
     """Manage portfolio state and performance tracking."""
     
-    def __init__(self, initial_balance: float):
-        self.initial_balance = initial_balance
+    def __init__(self, initial_balance: float = None):
+        self.initial_balance = initial_balance  # Will be set from first account fetch if None
         self.trade_history: List[Dict] = []
         self.equity_curve: List[Dict] = []
         self.start_time = datetime.now()
+        self._initial_balance_set = (initial_balance is not None)
     
     def calculate_account_state(
         self,
@@ -45,6 +46,12 @@ class PortfolioManager:
         
         # Calculate total account value
         total_value = available_cash + total_unrealized_pnl
+        
+        # Set initial balance from first account fetch (for Live/Testnet mode)
+        if not self._initial_balance_set:
+            self.initial_balance = total_value
+            self._initial_balance_set = True
+            logger.info(f"📊 Initial balance set from account: ${self.initial_balance:.2f} USDT")
         
         # Calculate return
         total_return = ((total_value - self.initial_balance) / self.initial_balance) * 100

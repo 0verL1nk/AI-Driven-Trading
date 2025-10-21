@@ -73,10 +73,14 @@ class DecisionValidator:
             
             # Validate risk per trade
             risk_usd = args.get('risk_usd', 0)
-            max_risk = account_value * (self.risk_params['position_sizing']['max_risk_per_trade_percent'] / 100)
+            max_risk_percent = self.risk_params['position_sizing']['max_risk_per_trade_percent']
+            max_risk = account_value * (max_risk_percent / 100)
             
-            if risk_usd > max_risk:
-                return False, f"Risk ${risk_usd:.2f} exceeds max ${max_risk:.2f} ({self.risk_params['position_sizing']['max_risk_per_trade_percent']}% of account)"
+            # Add small tolerance (0.1 USD) to avoid floating point precision issues
+            # But still enforce that risk should be meaningfully less than max
+            tolerance = 0.1
+            if risk_usd > max_risk + tolerance:
+                return False, f"Risk ${risk_usd:.2f} exceeds max ${max_risk:.2f} ({max_risk_percent}% of account)"
             
             # Validate stop loss and take profit for entry
             if signal == 'entry':
@@ -113,7 +117,15 @@ class DecisionValidator:
                     min_rr = self.risk_params['exit_strategy']['min_risk_reward_ratio']
                     
                     if rr_ratio < min_rr:
-                        return False, f"Risk/reward ratio {rr_ratio:.2f} below minimum {min_rr}"
+                        # 提供详细的计算信息帮助调试
+                        side = "LONG" if profit_target > current_price else "SHORT"
+                        return False, (
+                            f"Risk/reward ratio {rr_ratio:.2f} below minimum {min_rr}. "
+                            f"Details ({side}): Entry={current_price:.2f}, "
+                            f"SL={stop_loss:.2f}, TP={profit_target:.2f}, "
+                            f"Risk=${risk_distance:.2f}, Reward=${reward_distance:.2f}. "
+                            f"To fix: increase TP or tighten SL so that (TP-Entry) >= {min_rr}×(Entry-SL)"
+                        )
         
         return True, None
     

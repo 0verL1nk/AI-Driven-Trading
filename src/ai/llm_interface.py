@@ -10,6 +10,7 @@ from openai import OpenAI
 from anthropic import Anthropic
 
 from ..config import settings
+from .output_parser import trading_parser, OutputParserException
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,15 @@ class BaseLLMProvider(ABC):
     """Base class for LLM providers."""
     
     @abstractmethod
-    async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate response from LLM."""
+    async def generate(self, prompt: str, **kwargs) -> Dict:
+        """
+        Generate response from LLM.
+        
+        Returns:
+            Dict with keys:
+                - 'content': Main response text (required)
+                - 'reasoning_content': Thinking/reasoning process (optional)
+        """
         pass
 
 
@@ -43,15 +51,27 @@ class OpenAIProvider(BaseLLMProvider):
         self.model = model
         self.base_url = base_url or settings.openai_base_url
     
-    async def generate(self, prompt: str, **kwargs) -> str:
-        """Generate response using OpenAI API."""
+    async def generate(self, prompt: str, **kwargs) -> Dict:
+        """
+        Generate response using OpenAI API.
+        
+        Supports optional kwargs:
+            - temperature: float (default 0.3)
+            - max_tokens: int (default 4000)
+            - stream: bool (default True for reasoning extraction)
+            - thinking_budget: int (for models that support it)
+            - response_format: dict (e.g., {"type": "json_object"})
+            - extra_body: dict (additional parameters)
+        """
         try:
             temperature = kwargs.get('temperature', 0.3)
             max_tokens = kwargs.get('max_tokens', 4000)
+            use_stream = kwargs.get('stream', True)
             
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
+            # Build request parameters
+            request_params = {
+                "model": self.model,
+                "messages": [
                     {
                         "role": "system",
                         "content": "You are an expert cryptocurrency trader. Analyze market data and make trading decisions. Always output valid JSON only, no other text."
@@ -61,12 +81,56 @@ class OpenAIProvider(BaseLLMProvider):
                         "content": prompt
                     }
                 ],
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"}  # Force JSON output
-            )
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
             
-            return response.choices[0].message.content
+            # Add optional parameters if provided
+            if 'response_format' in kwargs:
+                request_params["response_format"] = kwargs['response_format']
+            
+            if 'extra_body' in kwargs:
+                request_params["extra_body"] = kwargs['extra_body']
+            elif 'thinking_budget' in kwargs:
+                # Convenience: auto-wrap thinking_budget in extra_body
+                request_params["extra_body"] = {"thinking_budget": kwargs['thinking_budget']}
+                logger.info(f"🧠 Using thinking_budget={kwargs['thinking_budget']}")
+            
+            # Use streaming to capture reasoning_content (if available)
+            if use_stream:
+                request_params["stream"] = True
+                response = self.client.chat.completions.create(**request_params)
+                
+                # Accumulate content and reasoning_content from stream
+                content = ""
+                reasoning_content = ""
+                
+                for chunk in response:
+                    if chunk.choices[0].delta.content:
+                        content += chunk.choices[0].delta.content
+                    if hasattr(chunk.choices[0].delta, 'reasoning_content') and chunk.choices[0].delta.reasoning_content:
+                        reasoning_content += chunk.choices[0].delta.reasoning_content
+                
+                result = {'content': content}
+                if reasoning_content:
+                    result['reasoning_content'] = reasoning_content
+                    logger.info(f"📊 Extracted reasoning_content from stream: {len(reasoning_content)} chars")
+                
+                return result
+            
+            else:
+                # Non-streaming mode
+                response = self.client.chat.completions.create(**request_params)
+                message = response.choices[0].message
+                
+                result = {'content': message.content or ""}
+                
+                # Check if reasoning_content exists in the response
+                if hasattr(message, 'reasoning_content') and message.reasoning_content:
+                    result['reasoning_content'] = message.reasoning_content
+                    logger.info(f"📊 Extracted reasoning_content: {len(message.reasoning_content)} chars")
+                
+                return result
         
         except Exception as e:
             logger.error(f"OpenAI API error: {e}")
@@ -80,7 +144,7 @@ class AnthropicProvider(BaseLLMProvider):
         self.client = Anthropic(api_key=settings.anthropic_api_key)
         self.model = model
     
-    async def generate(self, prompt: str, **kwargs) -> str:
+    async def generate(self, prompt: str, **kwargs) -> Dict:
         """Generate response using Anthropic API."""
         try:
             temperature = kwargs.get('temperature', 0.3)
@@ -99,7 +163,9 @@ class AnthropicProvider(BaseLLMProvider):
                 ]
             )
             
-            return message.content[0].text
+            return {
+                'content': message.content[0].text
+            }
         
         except Exception as e:
             logger.error(f"Anthropic API error: {e}")
@@ -113,7 +179,7 @@ class LocalLLMProvider(BaseLLMProvider):
         self.base_url = base_url
         self.model = model
     
-    async def generate(self, prompt: str, **kwargs) -> str:
+    async def generate(self, prompt: str, **kwargs) -> Dict:
         """Generate response using local LLM."""
         try:
             import aiohttp
@@ -131,7 +197,9 @@ class LocalLLMProvider(BaseLLMProvider):
                     }
                 ) as response:
                     result = await response.json()
-                    return result['response']
+                    return {
+                        'content': result['response']
+                    }
         
         except Exception as e:
             logger.error(f"Local LLM error: {e}")
@@ -175,7 +243,7 @@ class TradingLLM:
         **kwargs
     ) -> Dict:
         """
-        Generate trading decision from prompt.
+        Generate trading decision from prompt using Langchain + Pydantic parser.
         
         Args:
             prompt: Formatted trading prompt
@@ -183,39 +251,157 @@ class TradingLLM:
             **kwargs: Additional parameters for LLM
         
         Returns:
-            Parsed JSON response as dict
+            Dict with keys:
+                - 'decisions': Parsed and validated decision dict (coin -> decision)
+                - 'thinking': AI reasoning/thinking process (if available)
+                - 'raw_response': Raw LLM response text
         """
         for attempt in range(max_retries):
             try:
-                # Try primary provider
-                response_text = await self.primary.generate(prompt, **kwargs)
+                # Try primary provider (returns Dict with 'content' and optionally 'reasoning_content')
+                response_dict = await self.primary.generate(prompt, **kwargs)
                 
-                # Parse JSON response
-                decision = self._parse_response(response_text)
+                # Extract content and reasoning_content
+                response_text = response_dict.get('content', '')
+                reasoning_from_api = response_dict.get('reasoning_content', '')
                 
-                logger.info(f"LLM decision generated successfully (attempt {attempt + 1})")
-                return decision
+                # Extract thinking: prioritize reasoning_content from API, fallback to parsing tags
+                thinking = ""
+                if reasoning_from_api:
+                    thinking = reasoning_from_api
+                    logger.info(f"✅ Using reasoning_content from API: {len(thinking)} characters")
+                else:
+                    thinking = self._extract_thinking(response_text)
+                    if thinking:
+                        logger.info(f"✅ Extracted thinking from <think> tags: {len(thinking)} characters")
+                    else:
+                        logger.warning("⚠️ No reasoning_content or <think> tags found!")
+                
+                if thinking:
+                    logger.info(f"Thinking preview: {thinking[:200]}...")
+                
+                # Parse and validate with Langchain + Pydantic
+                decisions = self._parse_with_pydantic(response_text)
+                
+                logger.info(f"✅ LLM decision generated and validated (attempt {attempt + 1})")
+                
+                # Return decisions with thinking and raw response
+                return {
+                    'decisions': decisions,
+                    'thinking': thinking,
+                    'raw_response': response_text[:1000]  # First 1000 chars
+                }
             
-            except Exception as e:
-                logger.warning(f"Primary provider failed (attempt {attempt + 1}): {e}")
+            except OutputParserException as e:
+                logger.warning(f"❌ Parsing failed (attempt {attempt + 1}): {e}")
+                logger.debug(f"Response text: {response_text[:500]}...")
                 
                 # Try fallback provider
                 if self.fallback and attempt == max_retries - 1:
                     try:
-                        logger.info("Trying fallback provider...")
-                        response_text = await self.fallback.generate(prompt, **kwargs)
-                        decision = self._parse_response(response_text)
-                        logger.info("Fallback provider succeeded")
-                        return decision
+                        logger.info("🔄 Trying fallback provider...")
+                        fallback_dict = await self.fallback.generate(prompt, **kwargs)
+                        fallback_text = fallback_dict.get('content', '')
+                        fallback_thinking = fallback_dict.get('reasoning_content', '') or self._extract_thinking(fallback_text)
+                        decision = self._parse_with_pydantic(fallback_text)
+                        logger.info("✅ Fallback provider succeeded")
+                        return {
+                            'decisions': decision,
+                            'thinking': fallback_thinking,
+                            'raw_response': fallback_text[:1000]
+                        }
                     except Exception as fallback_error:
-                        logger.error(f"Fallback provider also failed: {fallback_error}")
+                        logger.error(f"❌ Fallback provider also failed: {fallback_error}")
                 
                 if attempt < max_retries - 1:
-                    logger.info(f"Retrying... (attempt {attempt + 2}/{max_retries})")
+                    logger.info(f"🔄 Retrying... (attempt {attempt + 2}/{max_retries})")
+                else:
+                    # Last attempt failed, try legacy parser as fallback
+                    logger.warning("⚠️ All Pydantic parsing attempts failed, trying legacy parser...")
+                    try:
+                        legacy_result = self._parse_response_legacy(response_text)
+                        return {
+                            'decisions': legacy_result,
+                            'thinking': thinking,  # Use previously extracted thinking
+                            'raw_response': response_text[:1000]
+                        }
+                    except Exception as legacy_error:
+                        logger.error(f"❌ Legacy parser also failed: {legacy_error}")
+                        raise e  # Raise original parsing exception
+            
+            except Exception as e:
+                logger.error(f"❌ LLM generation failed (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"🔄 Retrying... (attempt {attempt + 2}/{max_retries})")
                 else:
                     raise
         
         raise RuntimeError("All LLM attempts failed")
+    
+    def _extract_thinking(self, response_text: str) -> str:
+        """
+        Extract AI thinking/reasoning process from response.
+        
+        Some models (like DeepSeek-R1, o1) wrap their reasoning in tags:
+        - <think>...</think>
+        - <reasoning>...</reasoning>
+        
+        Args:
+            response_text: Raw LLM response
+            
+        Returns:
+            Extracted thinking text, or empty string if not found
+        """
+        import re
+        
+        # Try <think>...</think> tags
+        think_match = re.search(r'<think>(.*?)</think>', response_text, re.DOTALL)
+        if think_match:
+            return think_match.group(1).strip()
+        
+        # Try <reasoning>...</reasoning> tags
+        reasoning_match = re.search(r'<reasoning>(.*?)</reasoning>', response_text, re.DOTALL)
+        if reasoning_match:
+            return reasoning_match.group(1).strip()
+        
+        # No thinking tags found
+        return ""
+    
+    def _parse_with_pydantic(self, response_text: str) -> Dict:
+        """
+        Parse LLM response using Langchain + Pydantic (NEW METHOD).
+        
+        Args:
+            response_text: Raw response from LLM
+            
+        Returns:
+            Validated dict with trade_signal_args format
+            
+        Raises:
+            OutputParserException: If parsing/validation fails
+        """
+        try:
+            # Use Langchain parser with Pydantic validation
+            decisions = trading_parser.parse(response_text)
+            
+            logger.info(f"📊 Pydantic validation passed: {len(decisions)} coins")
+            for coin, decision in list(decisions.items())[:3]:
+                logger.debug(f"  ✓ {coin}: {decision.get('trade_signal_args', {}).get('signal', 'unknown')}")
+            
+            return decisions
+            
+        except Exception as e:
+            logger.error(f"Pydantic parsing error: {e}")
+            raise OutputParserException(f"Failed to parse with Pydantic: {e}")
+    
+    def _parse_response_legacy(self, response_text: str) -> Dict:
+        """
+        LEGACY: Parse LLM response to JSON (fallback method).
+        
+        This is kept for backward compatibility only.
+        """
+        logger.warning("⚠️ Using legacy JSON parser (no Pydantic validation)")
+        return self._parse_response(response_text)
     
     def _parse_response(self, response_text: str) -> Dict:
         """Parse LLM response to JSON."""
@@ -244,7 +430,24 @@ class TradingLLM:
             # Step 4: Parse JSON
             decision = json.loads(response_text)
             
-            logger.debug(f"Successfully parsed decision for {len(decision)} coins")
+            # Step 5: Validate structure
+            if not isinstance(decision, dict):
+                raise ValueError(f"Expected dict, got {type(decision)}")
+            
+            # Log structure for debugging
+            logger.info(f"Parsed decision structure: {len(decision)} top-level keys")
+            for key, value in list(decision.items())[:3]:  # Log first 3 entries
+                logger.debug(f"  Key '{key}': type={type(value)}, value_type={type(value) if isinstance(value, dict) else 'not_dict'}")
+            
+            # Check if it's the expected format (coin -> decision dict)
+            valid_coins = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE']
+            coin_keys = [k for k in decision.keys() if k in valid_coins]
+            
+            if coin_keys:
+                logger.info(f"Found {len(coin_keys)} coin decisions: {coin_keys}")
+            else:
+                logger.warning(f"No valid coin keys found. Keys: {list(decision.keys())[:10]}")
+                logger.warning(f"This might not be the expected format!")
             
             return decision
         

@@ -1,0 +1,42 @@
+账户成交历史 (USER_DATA)
+接口描述
+获取某交易对的成交历史
+
+HTTP请求
+GET /fapi/v1/userTrades
+
+请求权重
+5
+
+请求参数
+名称	类型	是否必需	描述
+symbol	STRING	YES	交易对
+orderId	LONG	NO	必须要和参数symbol一起使用
+startTime	LONG	NO	起始时间
+endTime	LONG	NO	结束时间
+fromId	LONG	NO	返回该fromId及之后的成交，缺省返回最近的成交
+limit	INT	NO	返回的结果集数量 默认值:500 最大值:1000.
+recvWindow	LONG	NO	
+timestamp	LONG	YES	
+如果startTime 和 endTime 均未发送, 只会返回最近7天的数据。
+startTime 和 endTime 的最大间隔为7天
+本接口仅支持最近6个月历史交易的查询
+响应示例
+[
+  {
+  	"buyer": false,	// 是否是买方
+  	"commission": "-0.07819010", // 手续费
+  	"commissionAsset": "USDT", // 手续费计价单位
+  	"id": 698759,	// 交易ID
+  	"maker": false,	// 是否是挂单方
+  	"orderId": 25851813, // 订单编号
+  	"price": "7819.01",	// 成交价
+  	"qty": "0.002",	// 成交量
+  	"quoteQty": "15.63802",	// 成交额
+  	"realizedPnl": "-0.91539999",	// 实现盈亏
+  	"side": "SELL",	// 买卖方向
+  	"positionSide": "SHORT",  // 持仓方向
+  	"symbol": "BTCUSDT", // 交易对
+  	"time": 1569514978020 // 时间
+  }
+]

@@ -1,0 +1,38 @@
+const API_BASE = 'http://localhost:8000'
+
+export async function fetchAccount() {
+  const res = await fetch(`${API_BASE}/api/account`)
+  if (!res.ok) throw new Error('Failed to fetch account')
+  return res.json()
+}
+
+export async function fetchPrices() {
+  const res = await fetch(`${API_BASE}/api/prices`)
+  if (!res.ok) throw new Error('Failed to fetch prices')
+  return res.json()
+}
+
+export async function fetchDecisions(limit: number = 20) {
+  const res = await fetch(`${API_BASE}/api/decisions?limit=${limit}`)
+  if (!res.ok) throw new Error('Failed to fetch decisions')
+  return res.json()
+}
+
+export async function fetchPositions() {
+  const res = await fetch(`${API_BASE}/api/positions`)
+  if (!res.ok) throw new Error('Failed to fetch positions')
+  return res.json()
+}
+
+export async function fetchAccountHistory(hours: number = 24) {
+  const res = await fetch(`${API_BASE}/api/account_history?hours=${hours}`)
+  if (!res.ok) throw new Error('Failed to fetch account history')
+  return res.json()
+}
+
+export async function fetchPriceHistory(symbol: string, hours: number = 24) {
+  const res = await fetch(`${API_BASE}/api/price_history/${symbol}?hours=${hours}`)
+  if (!res.ok) throw new Error('Failed to fetch price history')
+  return res.json()
+}
+

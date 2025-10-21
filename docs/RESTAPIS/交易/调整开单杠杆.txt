@@ -1,0 +1,22 @@
+调整开仓杠杆 (TRADE)
+接口描述
+调整用户在指定symbol合约的开仓杠杆。
+
+HTTP请求
+POST /fapi/v1/leverage
+
+请求权重
+1
+
+请求参数
+名称	类型	是否必需	描述
+symbol	STRING	YES	交易对
+leverage	INT	YES	目标杠杆倍数：1 到 125 整数
+recvWindow	LONG	NO	
+timestamp	LONG	YES	
+响应示例
+{
+ 	"leverage": 21,	// 杠杆倍数
+ 	"maxNotionalValue": "1000000", // 当前杠杆倍数下允许的最大名义价值
+ 	"symbol": "BTCUSDT"	// 交易对
+}
