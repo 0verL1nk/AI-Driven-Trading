@@ -84,12 +84,15 @@ class OrderManager:
             
             logger.info(f"Take profit set at {take_profit} (order {tp_order['id']})")
             
-            # Track orders
+            # Track orders with entry timestamp
+            from datetime import datetime
+            entry_time = datetime.now()
+            
             if coin not in self.active_orders:
                 self.active_orders[coin] = []
             
             self.active_orders[coin].extend([
-                {'type': 'entry', 'order': entry_order},
+                {'type': 'entry', 'order': entry_order, 'entry_time': entry_time},
                 {'type': 'stop_loss', 'order': sl_order},
                 {'type': 'take_profit', 'order': tp_order}
             ])
@@ -154,12 +157,48 @@ class OrderManager:
             
             # Calculate trade details
             from datetime import datetime, timedelta
-            entry_time = position.get('timestamp')
-            if isinstance(entry_time, str):
-                entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
+            
+            # Try to get entry_time from active_orders first (most accurate)
+            entry_time = None
+            if coin in self.active_orders:
+                for order_info in self.active_orders[coin]:
+                    if order_info['type'] == 'entry' and 'entry_time' in order_info:
+                        entry_time = order_info['entry_time']
+                        break
+            
+            # Fallback to position timestamp
+            if not entry_time:
+                raw_timestamp = position.get('timestamp')
+                if raw_timestamp:
+                    try:
+                        # Handle different timestamp formats
+                        if isinstance(raw_timestamp, (int, float)):
+                            # Millisecond timestamp
+                            entry_time = datetime.fromtimestamp(raw_timestamp / 1000 if raw_timestamp > 1e10 else raw_timestamp)
+                        elif isinstance(raw_timestamp, str):
+                            entry_time = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00'))
+                        elif isinstance(raw_timestamp, datetime):
+                            entry_time = raw_timestamp
+                    except Exception as e:
+                        logger.warning(f"Failed to parse timestamp {raw_timestamp}: {e}")
+                        entry_time = None
+            
             close_time = datetime.now()
             
-            duration_minutes = int((close_time - entry_time).total_seconds() / 60) if entry_time else 0
+            # Ensure entry_time is datetime or None before calculation
+            if entry_time and isinstance(entry_time, datetime):
+                duration_minutes = int((close_time - entry_time).total_seconds() / 60)
+            else:
+                duration_minutes = 0
+                entry_time = None  # Ensure it's None for database storage
+            
+            # Format duration for display
+            if duration_minutes > 0:
+                hours = duration_minutes // 60
+                minutes = duration_minutes % 60
+                duration_str = f"{hours}H {minutes}M" if hours > 0 else f"{minutes}M"
+            else:
+                duration_str = "0M"
             
             # Calculate PnL
             if quantity > 0:  # Long
@@ -173,8 +212,9 @@ class OrderManager:
             exit_notional = abs(exit_price * amount)
             
             # Record trade history
+            # Use close_time as fallback if entry_time is None
             trade_record = {
-                'entry_time': entry_time,
+                'entry_time': entry_time if entry_time else close_time,
                 'symbol': symbol,
                 'side': 'long' if quantity > 0 else 'short',
                 'quantity': amount,
@@ -192,7 +232,7 @@ class OrderManager:
             # Save to database if available
             if hasattr(self, 'db') and self.db:
                 self.db.save_trade(trade_record)
-                logger.info(f"Trade recorded: {coin} P&L={pnl:.2f} ({pnl_percent:.2f}%)")
+                logger.info(f"Trade recorded: {coin} P&L={pnl:.2f} ({pnl_percent:.2f}%), Duration: {duration_str}")
             
             # Remove from active orders
             if coin in self.active_orders:
