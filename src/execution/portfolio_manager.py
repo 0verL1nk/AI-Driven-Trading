@@ -40,7 +40,15 @@ class PortfolioManager:
         """
         # Get USDT balance
         usdt_balance = balance.get('USDT', {})
-        available_cash = usdt_balance.get('free', 0)
+        
+        # ✅ Use total balance (free + used margin), not just free
+        # This ensures account value doesn't drop when opening positions
+        wallet_balance = usdt_balance.get('total', 0)
+        if wallet_balance == 0:
+            # Fallback: calculate from free + used
+            wallet_balance = usdt_balance.get('free', 0) + usdt_balance.get('used', 0)
+        
+        available_cash = usdt_balance.get('free', 0)  # Still track for reference
         
         # Calculate total unrealized PnL using real-time prices if available
         total_unrealized_pnl = 0.0
@@ -68,7 +76,9 @@ class PortfolioManager:
                 total_unrealized_pnl += float(pos.get('unrealizedPnl', 0))
         
         # Calculate total account value
-        total_value = available_cash + total_unrealized_pnl
+        # ✅ Use wallet_balance (包含已用保证金) instead of available_cash
+        # This way account value stays constant when opening/closing positions
+        total_value = wallet_balance + total_unrealized_pnl
         
         # Set initial balance from first account fetch (for Live/Testnet mode)
         # IMPORTANT: Use total_value (not just free balance) to handle existing positions correctly
@@ -109,8 +119,9 @@ class PortfolioManager:
         self._last_total_value = total_value
         
         return {
-            'cash': available_cash,
-            'total_value': total_value,
+            'cash': available_cash,           # 可用余额（可开仓的）
+            'wallet_balance': wallet_balance,  # 钱包余额（free + used）
+            'total_value': total_value,        # 总资产（wallet + unrealized_pnl）
             'total_return': total_return,
             'unrealized_pnl': total_unrealized_pnl,
             'sharpe_ratio': sharpe_ratio,
