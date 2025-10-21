@@ -65,17 +65,17 @@ class TradingBot:
         # Get initial balance
         # For paper trading: use config file
         # For Testnet/Live: will be set from first account fetch
+        # Initialize database first (needed by PortfolioManager for persistence)
+        self.db = TradingDatabase()
+        logger.info("Database initialized for monitoring")
+        
         if settings.enable_paper_trading:
             initial_balance = trading_config.trading_config['paper_trading']['initial_balance']
         else:
             # For live/testnet, will be initialized from real account balance
             initial_balance = None  # Will be set on first fetch
         
-        self.portfolio = PortfolioManager(initial_balance=initial_balance)
-        
-        # Initialize database
-        self.db = TradingDatabase()
-        logger.info("Database initialized for monitoring")
+        self.portfolio = PortfolioManager(initial_balance=initial_balance, db=self.db)
         
         # Initialize WebSocket client for real-time data
         self.ws_client = BinanceWebSocketClient()

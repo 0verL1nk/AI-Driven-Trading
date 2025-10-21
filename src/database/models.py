@@ -37,6 +37,15 @@ class TradingDatabase:
                 )
             """)
             
+            # 系统配置表（用于持久化initial_balance等）
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS system_config (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             # 币种价格表
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS coin_prices (
@@ -287,4 +296,29 @@ class TradingDatabase:
                 ORDER BY timestamp ASC
             """, (symbol, hours))
             return [dict(row) for row in cursor.fetchall()]
+    
+    def get_config(self, key: str) -> str:
+        """获取系统配置"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM system_config WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+    
+    def set_config(self, key: str, value: str):
+        """设置系统配置"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO system_config (key, value, updated_at) 
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+            """, (key, value))
+            conn.commit()
+    
+    def delete_config(self, key: str):
+        """删除系统配置（用于重置initial_balance等）"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM system_config WHERE key = ?", (key,))
+            conn.commit()
 

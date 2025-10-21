@@ -12,13 +12,14 @@ logger = logging.getLogger(__name__)
 class PortfolioManager:
     """Manage portfolio state and performance tracking."""
     
-    def __init__(self, initial_balance: float = None):
+    def __init__(self, initial_balance: float = None, db = None):
         self.initial_balance = initial_balance  # Will be set from first account fetch if None
         self.trade_history: List[Dict] = []
         self.equity_curve: List[Dict] = []
         self.start_time = datetime.now()
         self._initial_balance_set = (initial_balance is not None)
         self._last_total_value = initial_balance or 0  # Cache last calculated total value
+        self._db = db  # Database reference for persisting initial_balance
     
     def calculate_account_state(
         self,
@@ -70,10 +71,25 @@ class PortfolioManager:
         total_value = available_cash + total_unrealized_pnl
         
         # Set initial balance from first account fetch (for Live/Testnet mode)
+        # IMPORTANT: Use total_value (not just free balance) to handle existing positions correctly
         if not self._initial_balance_set:
-            self.initial_balance = total_value
+            # Try to load from database first
+            if self._db:
+                saved_initial = self._db.get_config('initial_balance')
+                if saved_initial:
+                    self.initial_balance = float(saved_initial)
+                    logger.info(f"📊 Loaded initial balance from DB: ${self.initial_balance:.2f} USDT")
+                else:
+                    # First time setup: save to database
+                    self.initial_balance = total_value
+                    self._db.set_config('initial_balance', str(total_value))
+                    logger.info(f"📊 Initial balance set and saved to DB: ${self.initial_balance:.2f} USDT")
+            else:
+                # No database, use current total value
+                self.initial_balance = total_value
+                logger.info(f"📊 Initial balance set from account: ${self.initial_balance:.2f} USDT")
+            
             self._initial_balance_set = True
-            logger.info(f"📊 Initial balance set from account: ${self.initial_balance:.2f} USDT")
         
         # Calculate return
         total_return = ((total_value - self.initial_balance) / self.initial_balance) * 100
