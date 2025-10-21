@@ -192,6 +192,9 @@ class TradingBot:
                     # 保存到数据库供前端查询
                     self.db.save_account_state(account_state)
                     
+                    # 🆕 保存当前持仓到数据库（先清空旧的，再保存新的）
+                    self._save_positions_to_db(positions, realtime_prices)
+                    
                     logger.debug(f"💰 Updated account: ${account_state['total_value']:.2f} ({account_state['total_return']:.2f}%)")
                     
                 except Exception as e:
@@ -203,6 +206,62 @@ class TradingBot:
             except Exception as e:
                 logger.error(f"Error in price update loop: {e}")
                 await asyncio.sleep(self.price_update_interval)
+    
+    def _save_positions_to_db(self, positions, realtime_prices):
+        """
+        保存持仓数据到数据库（供前端显示）
+        
+        Args:
+            positions: 交易所返回的持仓列表
+            realtime_prices: 实时价格字典
+        """
+        try:
+            # 先清空旧的活跃持仓记录
+            import sqlite3
+            with sqlite3.connect(self.db.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM positions WHERE active = 1")
+                conn.commit()
+            
+            # 保存当前持仓
+            for pos in positions:
+                contracts = pos.get('contracts', 0)
+                if not contracts or contracts == 0:
+                    continue  # 跳过空仓
+                
+                symbol = pos.get('symbol', '')
+                entry_price = pos.get('entryPrice', 0)
+                
+                # 获取实时价格
+                current_price = realtime_prices.get(symbol, pos.get('markPrice', 0))
+                
+                # 计算实时未实现盈亏
+                side = pos.get('side', 'long')
+                if side == 'long':
+                    unrealized_pnl = contracts * (current_price - entry_price)
+                else:
+                    unrealized_pnl = contracts * (entry_price - current_price)
+                
+                # 格式化持仓数据
+                position_data = {
+                    'symbol': symbol,
+                    'side': side,
+                    'quantity': contracts,
+                    'entry_price': entry_price,
+                    'current_price': current_price,
+                    'leverage': pos.get('leverage', 1),
+                    'unrealized_pnl': unrealized_pnl,
+                    'stop_loss': 0,  # TODO: 从AI决策中获取
+                    'take_profit': 0,  # TODO: 从AI决策中获取
+                    'active': True
+                }
+                
+                self.db.save_position(position_data)
+                
+            logger.debug(f"💾 Saved {len([p for p in positions if p.get('contracts', 0) != 0])} positions to DB")
+            
+        except Exception as e:
+            logger.error(f"Error saving positions to DB: {e}")
     
     async def fetch_positions_with_retry(self, max_retries=2):
         """
