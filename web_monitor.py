@@ -109,10 +109,10 @@ if __name__ == "__main__":
     print("🖥️  AI TRADING MONITOR STARTING")
     print("=" * 80)
     print()
-    print("📊 Dashboard: http://localhost:8000")
-    print("🔌 API Docs: http://localhost:8000/docs")
+    print("📊 Dashboard: http://localhost:8541")
+    print("🔌 API Docs: http://localhost:8541/docs")
     print()
     print("=" * 80)
     
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8541, log_level="info")
 

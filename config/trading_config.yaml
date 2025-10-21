@@ -26,13 +26,13 @@ timeframes:
 # AI Decision Engine
 ai:
   provider: "openai"  # openai, anthropic, local
-  model: "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+  model: "THUDM/GLM-Z1-9B-0414"
   base_url: ""  # 留空使用官方API，或填入第三方OpenAI兼容API地址
                 # 示例：https://api.oneapi.com/v1 (国内中转)
                 # 示例：http://localhost:8000/v1 (本地vLLM)
                 # 注：也可通过环境变量OPENAI_BASE_URL配置
-  temperature: 0.3
-  max_tokens: 4000
+  temperature: 0.7
+  max_tokens: 9000
   decision_interval_minutes: 0.2  # Match nof1.ai frequency
   enable_chain_of_thought: true
   multi_agent_validation: false  # Enable for critical decisions

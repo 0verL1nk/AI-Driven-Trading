@@ -47,8 +47,8 @@ export default function Home() {
       <header className="border-b border-gray-800 p-4">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <h1 className="text-2xl font-bold">
-            <span className="text-white">Alpha</span>
-            <span className="text-gray-500">Arena</span>
+            <span className="text-white">Beta</span>
+            <span className="text-gray-500">Lexa</span>
           </h1>
           <div className="flex space-x-6 text-sm">
             <a href="#" className="text-white hover:text-gray-300">LIVE</a>
