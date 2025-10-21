@@ -111,17 +111,32 @@ class TradingDatabase:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS trade_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    close_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    entry_timestamp DATETIME,
                     symbol TEXT,
                     side TEXT,
                     quantity REAL,
                     entry_price REAL,
                     exit_price REAL,
+                    entry_notional REAL,
+                    exit_notional REAL,
+                    leverage INTEGER,
                     pnl REAL,
                     pnl_percent REAL,
-                    duration_minutes INTEGER
+                    duration_minutes INTEGER,
+                    reason TEXT
                 )
             """)
+            
+            # Add new columns if they don't exist (for existing databases)
+            cursor.execute("SELECT COUNT(*) FROM pragma_table_info('trade_history') WHERE name='entry_timestamp'")
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("ALTER TABLE trade_history ADD COLUMN entry_timestamp DATETIME")
+                cursor.execute("ALTER TABLE trade_history ADD COLUMN entry_notional REAL")
+                cursor.execute("ALTER TABLE trade_history ADD COLUMN exit_notional REAL")
+                cursor.execute("ALTER TABLE trade_history ADD COLUMN leverage INTEGER")
+                cursor.execute("ALTER TABLE trade_history ADD COLUMN reason TEXT")
+                logger.info("Added new columns to trade_history table")
             
             conn.commit()
             logger.info(f"Database initialized at {self.db_path}")
@@ -321,4 +336,43 @@ class TradingDatabase:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM system_config WHERE key = ?", (key,))
             conn.commit()
+    
+    def save_trade(self, trade: Dict):
+        """保存交易历史"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO trade_history 
+                (entry_timestamp, symbol, side, quantity, entry_price, exit_price,
+                 entry_notional, exit_notional, leverage, pnl, pnl_percent, 
+                 duration_minutes, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                trade.get('entry_time'),
+                trade.get('symbol'),
+                trade.get('side'),
+                trade.get('quantity'),
+                trade.get('entry_price'),
+                trade.get('exit_price'),
+                trade.get('entry_notional'),
+                trade.get('exit_notional'),
+                trade.get('leverage'),
+                trade.get('pnl'),
+                trade.get('pnl_percent'),
+                trade.get('duration_minutes'),
+                trade.get('reason', 'manual_close')
+            ))
+            conn.commit()
+    
+    def get_trade_history(self, limit: int = 50) -> List[Dict]:
+        """获取交易历史"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM trade_history 
+                ORDER BY close_timestamp DESC 
+                LIMIT ?
+            """, (limit,))
+            return [dict(row) for row in cursor.fetchall()]
 

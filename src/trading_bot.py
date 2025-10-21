@@ -60,15 +60,16 @@ class TradingBot:
             base_url=base_url
         )
         self.validator = DecisionValidator(trading_config.risk_params)
-        self.order_manager = OrderManager(self.exchange)
         
-        # Get initial balance
-        # For paper trading: use config file
-        # For Testnet/Live: will be set from first account fetch
         # Initialize database first (needed by PortfolioManager for persistence)
         self.db = TradingDatabase()
         logger.info("Database initialized for monitoring")
         
+        self.order_manager = OrderManager(self.exchange, db=self.db)
+        
+        # Get initial balance
+        # For paper trading: use config file
+        # For Testnet/Live: will be set from first account fetch
         if settings.enable_paper_trading:
             initial_balance = trading_config.trading_config['paper_trading']['initial_balance']
         else:

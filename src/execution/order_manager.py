@@ -14,9 +14,10 @@ logger = logging.getLogger(__name__)
 class OrderManager:
     """Manage order execution and tracking."""
     
-    def __init__(self, exchange_client: ExchangeClient):
+    def __init__(self, exchange_client: ExchangeClient, db=None):
         self.exchange = exchange_client
         self.active_orders: Dict[str, List[Dict]] = {}  # coin -> list of orders
+        self.db = db  # Database reference for recording trade history
     
     async def execute_entry(
         self,
@@ -110,29 +111,30 @@ class OrderManager:
         self,
         coin: str,
         symbol: str,
-        position: Dict
+        position: Dict,
+        reason: str = 'manual_close'
     ) -> Dict:
         """
-        Close existing position.
+        Close existing position and record trade history.
         
         Args:
             coin: Coin symbol
             symbol: Trading pair
             position: Position info dict
+            reason: Reason for closing (manual_close, stop_loss, take_profit, ai_decision)
         
         Returns:
             Close order info
         """
         try:
             quantity = position.get('quantity', 0)
+            entry_price = position.get('entry_price', 0)
             
             if quantity == 0:
                 logger.warning(f"No position to close for {coin}")
                 return {}
             
             # Determine close side (opposite of position)
-            # If we're long (quantity > 0), we sell to close
-            # If we're short (quantity < 0), we buy to close
             side = 'sell' if quantity > 0 else 'buy'
             amount = abs(quantity)
             
@@ -146,13 +148,60 @@ class OrderManager:
                 amount=amount
             )
             
+            exit_price = close_order.get('average') or close_order.get('price', 0)
+            
             logger.info(f"Position closed: {close_order['id']} - {side} {amount} {symbol}")
+            
+            # Calculate trade details
+            from datetime import datetime, timedelta
+            entry_time = position.get('timestamp')
+            if isinstance(entry_time, str):
+                entry_time = datetime.fromisoformat(entry_time.replace('Z', '+00:00'))
+            close_time = datetime.now()
+            
+            duration_minutes = int((close_time - entry_time).total_seconds() / 60) if entry_time else 0
+            
+            # Calculate PnL
+            if quantity > 0:  # Long
+                pnl = amount * (exit_price - entry_price)
+            else:  # Short
+                pnl = amount * (entry_price - exit_price)
+            
+            pnl_percent = (pnl / (entry_price * amount)) * 100 if entry_price * amount > 0 else 0
+            
+            entry_notional = abs(entry_price * amount)
+            exit_notional = abs(exit_price * amount)
+            
+            # Record trade history
+            trade_record = {
+                'entry_time': entry_time,
+                'symbol': symbol,
+                'side': 'long' if quantity > 0 else 'short',
+                'quantity': amount,
+                'entry_price': entry_price,
+                'exit_price': exit_price,
+                'entry_notional': entry_notional,
+                'exit_notional': exit_notional,
+                'leverage': position.get('leverage', 1),
+                'pnl': pnl,
+                'pnl_percent': pnl_percent,
+                'duration_minutes': duration_minutes,
+                'reason': reason
+            }
+            
+            # Save to database if available
+            if hasattr(self, 'db') and self.db:
+                self.db.save_trade(trade_record)
+                logger.info(f"Trade recorded: {coin} P&L={pnl:.2f} ({pnl_percent:.2f}%)")
             
             # Remove from active orders
             if coin in self.active_orders:
                 del self.active_orders[coin]
             
-            return {'close_order': close_order}
+            return {
+                'close_order': close_order,
+                'trade_record': trade_record
+            }
         
         except Exception as e:
             logger.error(f"Failed to close position for {coin}: {e}")

@@ -84,6 +84,13 @@ async def get_price_history(symbol: str, hours: int = 24):
     return history
 
 
+@app.get("/api/trades")
+async def get_trades(limit: int = 50):
+    """获取交易历史"""
+    trades = db.get_trade_history(limit)
+    return trades
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket实时推送"""
