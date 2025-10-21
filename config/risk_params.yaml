@@ -49,7 +49,10 @@ drawdown_protection:
 frequency_limits:
   max_trades_per_hour: 20
   max_trades_per_day: 100
-  min_time_between_same_coin_minutes: 5
+  min_time_between_same_coin_minutes: 5  # 同一币种开仓最小间隔
+  description: |
+    Prevent overtrading through AI education (via prompt) rather than hard limits.
+    AI should favor swing trades (hours to days) over scalping (minutes).
 
 # Invalidation Conditions
 invalidation:
