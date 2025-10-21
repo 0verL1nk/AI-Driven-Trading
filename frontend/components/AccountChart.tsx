@@ -11,6 +11,10 @@ export default function AccountChart({ account }: { account: any }) {
 
   useEffect(() => {
     loadHistory()
+    
+    // Auto-refresh history every 3 seconds for real-time curve updates
+    const interval = setInterval(loadHistory, 3000)
+    return () => clearInterval(interval)
   }, [timeRange])
 
   const loadHistory = async () => {
