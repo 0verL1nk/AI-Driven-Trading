@@ -2,14 +2,28 @@ import { format } from 'date-fns'
 
 export default function DecisionsList({ decisions }: { decisions: any[] }) {
   const getDecisionColor = (decision: string) => {
-    if (decision === 'buy' || decision === 'long') return 'text-green-500'
+    if (decision === 'buy' || decision === 'long' || decision === 'entry') return 'text-green-500'
     if (decision === 'sell' || decision === 'short') return 'text-red-500'
+    if (decision === 'close_position') return 'text-yellow-500'
     return 'text-gray-400'
   }
 
-  const getSideLabel = (side: string) => {
-    if (!side) return 'HOLD'
-    return side.toUpperCase()
+  const getSignalLabel = (decision: string, side: string) => {
+    // Priority: use decision field first (contains signal type)
+    if (decision) {
+      const signal = decision.toLowerCase()
+      if (signal === 'entry') return 'ENTRY'
+      if (signal === 'hold') return 'HOLD'
+      if (signal === 'close_position') return 'CLOSE'
+      if (signal === 'no_action') return 'NO ACTION'
+    }
+    
+    // Fallback to side field (for old data)
+    if (side) {
+      return side.toUpperCase()
+    }
+    
+    return 'HOLD'
   }
 
   return (
@@ -26,8 +40,13 @@ export default function DecisionsList({ decisions }: { decisions: any[] }) {
                 <span className={`font-bold ${getDecisionColor(d.decision || d.side)}`}>
                   {d.coin || 'UNKNOWN'}
                 </span>
-                <span className="text-xs text-gray-500">
-                  {getSideLabel(d.side)}
+                <span className={`text-xs px-2 py-0.5 rounded font-semibold ${
+                  d.decision === 'entry' ? 'bg-green-900/50 text-green-300' :
+                  d.decision === 'close_position' ? 'bg-yellow-900/50 text-yellow-300' :
+                  d.decision === 'hold' ? 'bg-blue-900/50 text-blue-300' :
+                  'bg-gray-800 text-gray-400'
+                }`}>
+                  {getSignalLabel(d.decision, d.side)}
                 </span>
               </div>
               <div className="text-xs text-gray-500">
