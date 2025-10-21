@@ -176,6 +176,74 @@ class TradingBot:
                 logger.error(f"Error in price update loop: {e}")
                 await asyncio.sleep(self.price_update_interval)
     
+    async def fetch_positions_with_retry(self, max_retries=2):
+        """
+        Fetch positions with retry logic to handle API data anomalies.
+        Uses exponential backoff to avoid IP bans.
+        
+        Args:
+            max_retries: Maximum number of retry attempts (default: 2, total 3 tries)
+            
+        Returns:
+            List of positions
+        """
+        for attempt in range(max_retries + 1):
+            try:
+                positions = await self.exchange.fetch_positions()
+                
+                # Validate data quality
+                has_invalid_data = False
+                for pos in positions:
+                    # Check for None values in critical fields (only if position exists)
+                    contracts = pos.get('contracts', 0)
+                    if contracts and contracts != 0:
+                        critical_fields = ['entryPrice', 'markPrice', 'unrealizedPnl']
+                        for field in critical_fields:
+                            if pos.get(field) is None:
+                                has_invalid_data = True
+                                logger.warning(f"Invalid data in position {pos.get('symbol')}: {field} is None")
+                                break
+                    if has_invalid_data:
+                        break
+                
+                # If data is valid, return it
+                if not has_invalid_data:
+                    if attempt > 0:
+                        logger.info(f"✅ Successfully fetched valid position data on attempt {attempt + 1}")
+                    return positions
+                
+                # If invalid, retry with exponential backoff
+                if attempt < max_retries:
+                    # Exponential backoff: 5s, 10s, 20s
+                    wait_time = 5 * (2 ** attempt)
+                    logger.warning(
+                        f"⚠️ Invalid data detected. Retrying in {wait_time}s "
+                        f"(attempt {attempt + 2}/{max_retries + 1})... "
+                        f"[Exponential backoff to avoid rate limit]"
+                    )
+                    await asyncio.sleep(wait_time)
+                    
+            except Exception as e:
+                error_msg = str(e)
+                # Check if it's a rate limit error
+                is_rate_limit = '418' in error_msg or 'rate limit' in error_msg.lower()
+                
+                if is_rate_limit:
+                    logger.error(f"🚫 Rate limit hit! Waiting 60s before retry...")
+                    if attempt < max_retries:
+                        await asyncio.sleep(60)  # Wait 1 minute for rate limit
+                else:
+                    logger.error(f"Error fetching positions (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                    if attempt < max_retries:
+                        wait_time = 5 * (2 ** attempt)
+                        logger.warning(f"Retrying in {wait_time}s...")
+                        await asyncio.sleep(wait_time)
+        
+        # If all retries failed, use safe fallback with empty positions
+        logger.error("❌ All position fetch attempts failed, returning empty positions as fallback")
+        logger.warning("⚠️ System will continue with no positions. This is safe but may miss existing trades.")
+        return []
+    
     async def run_trading_loop(self):
         """Main trading loop."""
         iteration = 0
@@ -194,7 +262,7 @@ class TradingBot:
                 # Step 2: Get current account state
                 logger.info("Step 2: Fetching account state...")
                 balance = await self.exchange.fetch_balance()
-                positions = await self.exchange.fetch_positions()
+                positions = await self.fetch_positions_with_retry(max_retries=3)
                 
                 account_state = self.portfolio.calculate_account_state(balance, positions)
                 formatted_positions = self.portfolio.format_positions_for_prompt(positions)
@@ -470,12 +538,16 @@ class TradingBot:
         take_profit = args.get('profit_target')
         risk_usd = args.get('risk_usd')
         
-        # Calculate position size
+        # Get account value for margin check
+        account_value = self.portfolio.get_total_value()
+        
+        # Calculate position size with margin constraint
         position_size = self.validator.calculate_position_size(
             risk_usd=risk_usd,
             entry_price=current_price,
             stop_loss=stop_loss,
-            leverage=leverage
+            leverage=leverage,
+            account_value=account_value
         )
         
         if position_size == 0:

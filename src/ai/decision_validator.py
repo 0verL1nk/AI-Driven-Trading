@@ -174,7 +174,8 @@ class DecisionValidator:
         risk_usd: float,
         entry_price: float,
         stop_loss: float,
-        leverage: int
+        leverage: int,
+        account_value: float = None
     ) -> float:
         """
         Calculate position size based on risk parameters.
@@ -184,6 +185,7 @@ class DecisionValidator:
             entry_price: Entry price
             stop_loss: Stop loss price
             leverage: Leverage multiplier
+            account_value: Total account value (for margin check)
         
         Returns:
             Position size in base currency
@@ -195,12 +197,37 @@ class DecisionValidator:
             logger.error("Risk per unit is zero, cannot calculate position size")
             return 0
         
-        # Position size without leverage
+        # Check if stop loss is too tight (< 1% distance)
+        sl_percent = (risk_per_unit / entry_price) * 100
+        if sl_percent < 1.0:
+            logger.warning(f"Stop loss very tight ({sl_percent:.2f}%), may result in large position size")
+        
+        # Position size based on risk
         base_position = risk_usd / risk_per_unit
         
-        # With leverage, we can control more
-        # But the actual capital at risk stays the same
-        position_size = base_position
+        # Calculate required margin
+        notional_value = base_position * entry_price
+        required_margin = notional_value / leverage
         
-        return position_size
+        # If account_value provided, check margin constraint
+        if account_value:
+            # Maximum 30% of account value as margin for single trade
+            max_margin = account_value * 0.30
+            
+            if required_margin > max_margin:
+                logger.warning(
+                    f"Required margin ${required_margin:.2f} exceeds max ${max_margin:.2f} "
+                    f"(30% of account). Reducing position size."
+                )
+                # Reduce position size to fit margin constraint
+                base_position = (max_margin * leverage) / entry_price
+                
+                # Recalculate actual risk
+                actual_risk = base_position * risk_per_unit
+                logger.warning(
+                    f"Position size reduced. New risk: ${actual_risk:.2f} "
+                    f"(target was ${risk_usd:.2f})"
+                )
+        
+        return base_position
 

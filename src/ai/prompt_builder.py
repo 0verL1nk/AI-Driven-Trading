@@ -194,6 +194,8 @@ CURRENT MARKET STATE FOR ALL COINS
         
         section += f"4. Every 'entry' signal MUST have:\n"
         section += f"   - stop_loss: Price level (must be < entry for long, > entry for short)\n"
+        section += f"     ⚠️ IMPORTANT: Stop loss must be at least 2% away from entry price!\n"
+        section += f"     (Too tight stop loss = very large position size = margin insufficient error)\n"
         section += f"   - profit_target: Price level (ensure R/R >= {min_rr_ratio}:1)\n"
         section += f"   - invalidation_condition: Clear condition like 'If price closes below X on 3-min candle'\n"
         section += f"   - All prices must be realistic and based on current market price\n\n"

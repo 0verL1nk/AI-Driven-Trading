@@ -88,20 +88,40 @@ class PortfolioManager:
         """
         formatted = []
         
+        # Safe conversion helpers (handle None values from API)
+        def safe_float(value, default=0.0):
+            """Convert to float, handling None values."""
+            if value is None:
+                return default
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+        
+        def safe_int(value, default=1):
+            """Convert to int, handling None values."""
+            if value is None:
+                return default
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                return default
+        
         for pos in positions:
             # Extract relevant fields
             symbol = pos.get('symbol', '').replace('/USDT:USDT', '')
-            contracts = float(pos.get('contracts', 0))
+            contracts = safe_float(pos.get('contracts', 0))
             
             if contracts == 0:
                 continue
             
-            entry_price = float(pos.get('entryPrice', 0))
-            current_price = float(pos.get('markPrice', 0))
-            liquidation_price = float(pos.get('liquidationPrice', 0))
-            unrealized_pnl = float(pos.get('unrealizedPnl', 0))
-            leverage = int(pos.get('leverage', 1))
-            notional = float(pos.get('notional', 0))
+            # Use safe conversion helpers
+            entry_price = safe_float(pos.get('entryPrice', 0))
+            current_price = safe_float(pos.get('markPrice', 0))
+            liquidation_price = safe_float(pos.get('liquidationPrice', 0))
+            unrealized_pnl = safe_float(pos.get('unrealizedPnl', 0))
+            leverage = safe_int(pos.get('leverage', 1))
+            notional = safe_float(pos.get('notional', 0))
             
             # Calculate from stored exit plan if available
             # In production, you'd store this in a database

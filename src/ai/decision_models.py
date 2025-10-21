@@ -21,9 +21,11 @@ class TradeSignalArgs(BaseModel):
     """
     coin: str = Field(..., description="Coin symbol (e.g., BTC, ETH)")
     signal: SignalType = Field(..., description="Trading signal type")
-    leverage: int = Field(..., ge=1, le=15, description="Leverage multiplier (5-15x, can be lower for no_action)")
-    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence level (0.0-1.0, will be adjusted based on signal)")
-    risk_usd: float = Field(..., ge=0, description="Risk amount in USD (can be 0 for no_action)")
+    
+    # These fields are optional for no_action, will be auto-filled with defaults
+    leverage: Optional[int] = Field(None, ge=1, le=15, description="Leverage multiplier (5-15x, optional for no_action)")
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Confidence level (0.0-1.0, optional for no_action)")
+    risk_usd: Optional[float] = Field(None, ge=0, description="Risk amount in USD (optional for no_action)")
     
     # Entry/Hold specific fields
     profit_target: Optional[float] = Field(None, description="Take profit price")
@@ -48,9 +50,17 @@ class TradeSignalArgs(BaseModel):
     def validate_leverage(cls, v, info):
         """Validate leverage based on signal type."""
         signal = info.data.get('signal')
-        # For no_action, leverage can be 0
-        if signal == SignalType.NO_ACTION and v == 0:
-            return 5  # Set default minimum
+        
+        # For no_action or close_position, use default if not provided
+        if signal in [SignalType.NO_ACTION, SignalType.CLOSE_POSITION]:
+            if v is None or v == 0:
+                return 5  # Set default minimum
+            return v
+        
+        # For entry/hold, leverage is required
+        if v is None:
+            raise ValueError(f"Leverage is required for {signal} signal")
+        
         return v
     
     @field_validator('confidence')
@@ -59,15 +69,36 @@ class TradeSignalArgs(BaseModel):
         """Validate confidence based on signal type."""
         signal = info.data.get('signal')
         
-        if signal == SignalType.NO_ACTION or signal == SignalType.CLOSE_POSITION:
-            # For no_action/close, allow any confidence >= 0, auto-adjust to 0.5 minimum
+        if signal in [SignalType.NO_ACTION, SignalType.CLOSE_POSITION]:
+            # For no_action/close, use default if not provided
+            if v is None:
+                return 0.5  # Default confidence
             if v < 0.5:
                 return 0.5
             return v
         else:
-            # For entry/hold, require >= 0.5
+            # For entry/hold, confidence is required and must be >= 0.5
+            if v is None:
+                raise ValueError(f"Confidence is required for {signal} signal")
             if v < 0.5:
                 raise ValueError(f"Confidence for {signal} must be >= 0.5, got {v}")
+            return v
+    
+    @field_validator('risk_usd')
+    @classmethod
+    def validate_risk_usd(cls, v, info):
+        """Validate risk_usd based on signal type."""
+        signal = info.data.get('signal')
+        
+        if signal in [SignalType.NO_ACTION, SignalType.CLOSE_POSITION]:
+            # For no_action/close, default to 0
+            if v is None:
+                return 0.0
+            return v
+        else:
+            # For entry/hold, risk_usd is required
+            if v is None:
+                raise ValueError(f"risk_usd is required for {signal} signal")
             return v
     
     @field_validator('profit_target', 'stop_loss')
