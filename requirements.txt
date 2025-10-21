@@ -4,11 +4,13 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 
 # Exchange & Market Data
-ccxt==4.2.0
+ccxt==4.2.10
 pandas==2.1.4
 numpy==1.26.2
-ta-lib==0.4.28
-pandas-ta==0.3.14b0
+# 技术指标库 - 已注释，使用纯pandas实现（见indicator_engine.py）
+# TA-Lib>=0.4.28  # 需要先安装C库，较复杂
+# pandas-ta>=0.3.14b  # 与pandas 2.1的numpy要求冲突（需要numpy>=2.2.6但pandas需要<2）
+# 系统已实现所有必要指标的纯pandas版本，无需额外依赖
 
 # AI & LLM
 openai==1.6.1
