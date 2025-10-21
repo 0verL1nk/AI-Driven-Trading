@@ -355,12 +355,18 @@ class TradingBot:
                 
                 logger.info(f"Validated {len(validated_decisions)}/{len(valid_decisions)} decisions")
                 
-                # Save AI decisions to database (with thinking)
-                for coin, decision in valid_decisions.items():
+                # Save ONLY validated decisions to database (with thinking)
+                # Invalid decisions are not saved to keep the database clean
+                for coin, decision in validated_decisions.items():
                     try:
                         self.db.save_ai_decision(coin, decision, thinking)
                     except Exception as e:
                         logger.error(f"Failed to save decision for {coin}: {e}")
+                
+                # Log rejected decisions for debugging
+                rejected_coins = set(valid_decisions.keys()) - set(validated_decisions.keys())
+                if rejected_coins:
+                    logger.info(f"ℹ️  Rejected decisions (not saved to DB): {', '.join(rejected_coins)}")
                 
                 # Step 7: Execute trades
                 logger.info("Step 7: Executing trades...")
