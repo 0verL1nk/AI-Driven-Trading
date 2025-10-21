@@ -18,8 +18,8 @@ export default function Home() {
     // Initial load
     loadData()
     
-    // Refresh every 5 seconds
-    const interval = setInterval(loadData, 5000)
+    // Refresh every 1 second for real-time updates
+    const interval = setInterval(loadData, 1000)
     return () => clearInterval(interval)
   }, [])
 

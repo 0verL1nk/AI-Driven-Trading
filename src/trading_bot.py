@@ -169,6 +169,34 @@ class TradingBot:
                     
                     logger.debug(f"💾 Updated prices for {len(self.latest_prices)} coins")
                 
+                # 🆕 实时计算账户状态（用于前端实时显示盈亏）
+                try:
+                    balance = await self.exchange.fetch_balance()
+                    positions = await self.exchange.fetch_positions()
+                    
+                    # 转换实时价格格式
+                    realtime_prices = {}
+                    for symbol, price in self.latest_prices.items():
+                        if symbol.endswith('USDT'):
+                            base = symbol[:-4]
+                            standard_symbol = f"{base}/USDT:USDT"
+                            realtime_prices[standard_symbol] = price
+                    
+                    # 用实时价格计算账户状态
+                    account_state = self.portfolio.calculate_account_state(
+                        balance,
+                        positions,
+                        realtime_prices=realtime_prices
+                    )
+                    
+                    # 保存到数据库供前端查询
+                    self.db.save_account_state(account_state)
+                    
+                    logger.debug(f"💰 Updated account: ${account_state['total_value']:.2f} ({account_state['total_return']:.2f}%)")
+                    
+                except Exception as e:
+                    logger.debug(f"Error updating account state: {e}")
+                
                 # 等待3秒
                 await asyncio.sleep(self.price_update_interval)
                 
@@ -264,7 +292,22 @@ class TradingBot:
                 balance = await self.exchange.fetch_balance()
                 positions = await self.fetch_positions_with_retry(max_retries=3)
                 
-                account_state = self.portfolio.calculate_account_state(balance, positions)
+                # Convert latest_prices to format needed by portfolio manager
+                # self.latest_prices: {'BTCUSDT': 100000.0, ...}
+                # portfolio needs: {'BTC/USDT:USDT': 100000.0, ...}
+                realtime_prices = {}
+                for symbol, price in self.latest_prices.items():
+                    # Convert BTCUSDT -> BTC/USDT:USDT
+                    if symbol.endswith('USDT'):
+                        base = symbol[:-4]  # Remove 'USDT'
+                        standard_symbol = f"{base}/USDT:USDT"
+                        realtime_prices[standard_symbol] = price
+                
+                account_state = self.portfolio.calculate_account_state(
+                    balance, 
+                    positions,
+                    realtime_prices=realtime_prices
+                )
                 formatted_positions = self.portfolio.format_positions_for_prompt(positions)
                 
                 logger.info(f"Account Value: ${account_state['total_value']:.2f}")

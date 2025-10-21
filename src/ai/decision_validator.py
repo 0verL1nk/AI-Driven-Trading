@@ -46,17 +46,21 @@ class DecisionValidator:
         if signal in ['hold', 'no_action']:
             return True, None
         
-        # Validate entry/close_position signals
-        if signal in ['entry', 'close_position']:
-            # Check required fields
-            required_fields = ['leverage', 'confidence', 'risk_usd']
-            
-            if signal == 'entry':
-                required_fields.extend(['profit_target', 'stop_loss', 'invalidation_condition'])
+        # Validate entry signals (close_position can use defaults from Pydantic)
+        if signal == 'entry':
+            # Check required fields for entry
+            required_fields = ['leverage', 'confidence', 'risk_usd', 'profit_target', 'stop_loss', 'invalidation_condition']
             
             for field in required_fields:
                 if field not in args:
                     return False, f"Missing required field: {field}"
+        
+        # For close_position, these fields are optional (will use defaults from Pydantic)
+        if signal == 'close_position':
+            # Ensure defaults are set if missing
+            args.setdefault('leverage', 5)
+            args.setdefault('confidence', 0.5)
+            args.setdefault('risk_usd', 0.0)
             
             # Validate leverage
             leverage = args.get('leverage', 0)

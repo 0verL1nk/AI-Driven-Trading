@@ -23,14 +23,16 @@ class PortfolioManager:
     def calculate_account_state(
         self,
         balance: Dict,
-        positions: List[Dict]
+        positions: List[Dict],
+        realtime_prices: Dict[str, float] = None
     ) -> Dict:
         """
-        Calculate current account state.
+        Calculate current account state with real-time prices.
         
         Args:
             balance: Balance dict from exchange
             positions: List of current positions
+            realtime_prices: Dict of real-time prices from WebSocket {symbol: price}
         
         Returns:
             Dict with account metrics
@@ -39,11 +41,30 @@ class PortfolioManager:
         usdt_balance = balance.get('USDT', {})
         available_cash = usdt_balance.get('free', 0)
         
-        # Calculate total unrealized PnL
-        total_unrealized_pnl = sum(
-            float(pos.get('unrealizedPnl', 0))
-            for pos in positions
-        )
+        # Calculate total unrealized PnL using real-time prices if available
+        total_unrealized_pnl = 0.0
+        
+        for pos in positions:
+            contracts = float(pos.get('contracts', 0))
+            if contracts == 0:
+                continue
+                
+            entry_price = float(pos.get('entryPrice', 0))
+            symbol = pos.get('symbol', '')
+            side = pos.get('side', 'long')
+            
+            # Use real-time price if available, otherwise fall back to exchange's markPrice
+            if realtime_prices and symbol in realtime_prices:
+                current_price = realtime_prices[symbol]
+                # Calculate unrealized PnL based on position side
+                if side == 'long':
+                    pnl = contracts * (current_price - entry_price)
+                else:  # short
+                    pnl = contracts * (entry_price - current_price)
+                total_unrealized_pnl += pnl
+            else:
+                # Fallback to exchange's unrealizedPnl
+                total_unrealized_pnl += float(pos.get('unrealizedPnl', 0))
         
         # Calculate total account value
         total_value = available_cash + total_unrealized_pnl
