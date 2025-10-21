@@ -208,18 +208,51 @@ class OrderManager:
             raise
     
     async def _cancel_pending_orders(self, coin: str, symbol: str):
-        """Cancel pending SL/TP orders for a coin."""
-        if coin not in self.active_orders:
-            return
+        """
+        Cancel all pending orders for a symbol.
         
-        for order_info in self.active_orders[coin]:
-            if order_info['type'] in ['stop_loss', 'take_profit']:
-                try:
-                    order_id = order_info['order']['id']
-                    await self.exchange.exchange.cancel_order(order_id, symbol)
-                    logger.info(f"Cancelled {order_info['type']} order {order_id}")
-                except Exception as e:
-                    logger.warning(f"Failed to cancel order {order_id}: {e}")
+        This method:
+        1. First tries to cancel tracked orders (from memory)
+        2. Then fetches all open orders from exchange and cancels them
+        3. Ensures no orphaned orders remain
+        """
+        cancelled_count = 0
+        
+        # Method 1: Cancel tracked orders (from memory)
+        if coin in self.active_orders:
+            for order_info in self.active_orders[coin]:
+                if order_info['type'] in ['stop_loss', 'take_profit']:
+                    try:
+                        order_id = order_info['order']['id']
+                        await self.exchange.exchange.cancel_order(order_id, symbol)
+                        logger.info(f"✅ Cancelled tracked {order_info['type']} order {order_id}")
+                        cancelled_count += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to cancel tracked order {order_id}: {e}")
+        
+        # Method 2: Fetch and cancel ALL open orders for this symbol from exchange
+        # This catches any orders that weren't tracked (e.g., after restart)
+        try:
+            open_orders = await self.exchange.exchange.fetch_open_orders(symbol)
+            
+            if open_orders:
+                logger.info(f"Found {len(open_orders)} open orders for {symbol}, cancelling all...")
+                
+                for order in open_orders:
+                    try:
+                        order_id = order['id']
+                        order_type = order.get('type', 'unknown')
+                        await self.exchange.exchange.cancel_order(order_id, symbol)
+                        logger.info(f"✅ Cancelled open order {order_id} (type: {order_type})")
+                        cancelled_count += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to cancel order {order_id}: {e}")
+            
+            if cancelled_count > 0:
+                logger.info(f"Total cancelled {cancelled_count} orders for {coin}")
+        
+        except Exception as e:
+            logger.warning(f"Failed to fetch open orders for {symbol}: {e}")
     
     async def check_invalidation_conditions(
         self,

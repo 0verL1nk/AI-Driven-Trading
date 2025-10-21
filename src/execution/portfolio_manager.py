@@ -176,6 +176,17 @@ class PortfolioManager:
             if contracts == 0:
                 continue
             
+            # Get position side (long or short)
+            side = pos.get('side', 'long')
+            
+            # IMPORTANT: Store quantity with sign
+            # Positive quantity = long position
+            # Negative quantity = short position
+            if side == 'short':
+                quantity = -abs(contracts)
+            else:
+                quantity = abs(contracts)
+            
             # Use safe conversion helpers
             entry_price = safe_float(pos.get('entryPrice', 0))
             current_price = safe_float(pos.get('markPrice', 0))
@@ -187,15 +198,20 @@ class PortfolioManager:
             # Calculate from stored exit plan if available
             # In production, you'd store this in a database
             # For now, we'll use placeholder values
+            # Get entry timestamp (for trade duration calculation)
+            timestamp = pos.get('timestamp') or pos.get('updateTime')
+            
             formatted_pos = {
                 'symbol': symbol,
-                'quantity': contracts,
+                'quantity': quantity,  # With sign: + for long, - for short
+                'side': side,  # Keep side info for reference
                 'entry_price': entry_price,
                 'current_price': current_price,
                 'liquidation_price': liquidation_price,
                 'unrealized_pnl': unrealized_pnl,
                 'leverage': leverage,
                 'notional_usd': abs(notional),
+                'timestamp': timestamp,  # For calculating trade duration
                 'exit_plan': {
                     'profit_target': 0,  # To be filled from database
                     'stop_loss': 0,
