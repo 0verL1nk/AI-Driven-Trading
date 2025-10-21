@@ -57,3 +57,15 @@ invalidation:
   check_interval_minutes: 1
   use_3min_candle_close: true  # Match nof1.ai logic
 
+# Execution Protection (for AI decision latency)
+execution_protection:
+  max_slippage_percent: 2.0  # Reject entry if UNFAVORABLE slippage > 2%
+  log_slippage_threshold_percent: 0.1  # Log if slippage > 0.1%
+  revalidate_rr_ratio: true  # Re-check R/R ratio with real-time price
+  description: |
+    AI decision takes 1-2 minutes, during which crypto prices may change.
+    Smart slippage protection:
+      - Long: reject if price ROSE > 2% (buying expensive = bad)
+      - Short: reject if price FELL > 2% (selling cheap = bad)
+      - Favorable slippage (price moves in our favor) is WELCOMED!
+

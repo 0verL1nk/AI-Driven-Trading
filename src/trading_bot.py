@@ -611,6 +611,16 @@ class TradingBot:
                 elif signal == 'close_position':
                     # Close existing position
                     if coin in position_map:
+                        # 🆕 Log price change since AI decision
+                        decision_price = current_prices[coin]
+                        realtime_price = self.latest_prices.get(f"{coin}USDT", decision_price)
+                        if realtime_price != decision_price:
+                            price_change_pct = (realtime_price - decision_price) / decision_price * 100
+                            logger.info(
+                                f"💱 Price changed {price_change_pct:+.2f}% during AI decision "
+                                f"({decision_price:.4f} → {realtime_price:.4f})"
+                            )
+                        
                         await self.order_manager.execute_close(
                             coin,
                             symbol,
@@ -641,16 +651,79 @@ class TradingBot:
         args: Dict,
         current_price: float
     ):
-        """Execute entry order."""
+        """Execute entry order with real-time price validation."""
         leverage = args.get('leverage', 10)
         stop_loss = args.get('stop_loss')
         take_profit = args.get('profit_target')
         risk_usd = args.get('risk_usd')
         
+        # 🆕 Get real-time price (AI may have taken 1-2 mins to decide)
+        realtime_price = self.latest_prices.get(f"{coin}USDT")
+        
+        if realtime_price:
+            # Determine trade direction first
+            is_long = take_profit > current_price
+            
+            # Calculate slippage (signed: positive = price went up)
+            price_change_pct = (realtime_price - current_price) / current_price * 100
+            
+            # 🛡️ Smart slippage protection: only reject UNFAVORABLE slippage
+            # - Long: price went UP (buying more expensive) = bad
+            # - Short: price went DOWN (selling cheaper) = bad
+            exec_protection = self.config.get('execution_protection', {})
+            MAX_SLIPPAGE = exec_protection.get('max_slippage_percent', 2.0)
+            LOG_THRESHOLD = exec_protection.get('log_slippage_threshold_percent', 0.1)
+            
+            unfavorable_slippage = (is_long and price_change_pct > 0) or (not is_long and price_change_pct < 0)
+            
+            if unfavorable_slippage and abs(price_change_pct) > MAX_SLIPPAGE:
+                logger.warning(
+                    f"⚠️ Unfavorable slippage: price {'rose' if price_change_pct > 0 else 'fell'} "
+                    f"{abs(price_change_pct):.2f}% during AI decision "
+                    f"({current_price:.4f} → {realtime_price:.4f}). "
+                    f"{'Buying more expensive' if is_long else 'Selling cheaper'}. "
+                    f"Skipping entry for {coin} (max slippage: {MAX_SLIPPAGE}%)"
+                )
+                return
+            
+            # Log favorable slippage as good news!
+            if not unfavorable_slippage and abs(price_change_pct) > LOG_THRESHOLD:
+                logger.info(
+                    f"✅ Favorable slippage: price {'fell' if is_long else 'rose'} "
+                    f"{abs(price_change_pct):.2f}%! "
+                    f"{'Buying cheaper' if is_long else 'Selling higher'}: {realtime_price:.4f}"
+                )
+            # Log unfavorable but acceptable slippage
+            elif unfavorable_slippage and abs(price_change_pct) > LOG_THRESHOLD:
+                logger.info(
+                    f"💱 Acceptable slippage: {price_change_pct:+.2f}% "
+                    f"({current_price:.4f} → {realtime_price:.4f})"
+                )
+            
+            current_price = realtime_price
+            
+            # 🆕 Re-validate R/R ratio with new price (if enabled)
+            if exec_protection.get('revalidate_rr_ratio', True):
+                risk_distance = abs(current_price - stop_loss)
+                reward_distance = abs(take_profit - current_price)
+                
+                if risk_distance > 0:
+                    new_rr_ratio = reward_distance / risk_distance
+                    min_rr = self.config['risk_management']['min_rr_ratio']
+                    
+                    if new_rr_ratio < min_rr:
+                        logger.warning(
+                            f"⚠️ R/R ratio dropped to {new_rr_ratio:.2f} after price change "
+                            f"(min: {min_rr}). Entry: {current_price:.4f}, "
+                            f"SL: {stop_loss:.4f}, TP: {take_profit:.4f}. "
+                            f"Skipping entry for {coin}"
+                        )
+                        return
+        
         # Get account value for margin check
         account_value = self.portfolio.get_total_value()
         
-        # Calculate position size with margin constraint
+        # Calculate position size with margin constraint (using real-time price)
         position_size = self.validator.calculate_position_size(
             risk_usd=risk_usd,
             entry_price=current_price,
