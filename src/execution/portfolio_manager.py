@@ -201,17 +201,61 @@ class PortfolioManager:
             # Get entry timestamp (for trade duration calculation)
             timestamp = pos.get('timestamp') or pos.get('updateTime')
             
+            # Calculate holding time and PnL percentage
+            holding_time_str = "Unknown"
+            pnl_percent = 0.0
+            
+            try:
+                if timestamp:
+                    from datetime import datetime
+                    # Handle different timestamp formats
+                    if isinstance(timestamp, (int, float)):
+                        entry_time = datetime.fromtimestamp(timestamp / 1000 if timestamp > 1e10 else timestamp)
+                    elif isinstance(timestamp, str):
+                        try:
+                            # Try parsing ISO format
+                            entry_time = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        except:
+                            # Try parsing as timestamp
+                            ts = float(timestamp)
+                            entry_time = datetime.fromtimestamp(ts / 1000 if ts > 1e10 else ts)
+                    else:
+                        entry_time = timestamp
+                    
+                    # Calculate holding duration
+                    holding_duration = datetime.now() - entry_time
+                    total_minutes = int(holding_duration.total_seconds() / 60)
+                    
+                    if total_minutes >= 60:
+                        hours = total_minutes // 60
+                        minutes = total_minutes % 60
+                        holding_time_str = f"{hours}h {minutes}m"
+                    else:
+                        holding_time_str = f"{total_minutes}m"
+                        
+                # Calculate PnL percentage
+                if entry_price > 0 and abs(quantity) > 0:
+                    investment = entry_price * abs(quantity)
+                    pnl_percent = (unrealized_pnl / investment) * 100 if investment > 0 else 0.0
+                    
+            except Exception as e:
+                # Fallback to safe defaults
+                holding_time_str = "Unknown"
+                pnl_percent = 0.0
+            
             formatted_pos = {
                 'symbol': symbol,
                 'quantity': quantity,  # With sign: + for long, - for short
                 'side': side,  # Keep side info for reference
                 'entry_price': entry_price,
                 'current_price': current_price,
-                'liquidation_price': liquidation_price,
                 'unrealized_pnl': unrealized_pnl,
+                'pnl_percent': round(pnl_percent, 2),  # 🆕 收益率百分比
+                'holding_time': holding_time_str,      # 🆕 持仓时长
                 'leverage': leverage,
                 'notional_usd': abs(notional),
-                'timestamp': timestamp,  # For calculating trade duration
+                'liquidation_price': liquidation_price,
+                'timestamp': timestamp,  # Keep original for debugging
                 'exit_plan': {
                     'profit_target': 0,  # To be filled from database
                     'stop_loss': 0,

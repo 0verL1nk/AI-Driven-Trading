@@ -142,6 +142,39 @@ CURRENT MARKET STATE FOR ALL COINS
         
         section += f"Sharpe Ratio: {account.get('sharpe_ratio', 0):.3f}\n\n"
         
+        # Add explicit trading philosophy guidance
+        section += "=" * 80 + "\n"
+        section += "TRADING PHILOSOPHY & STRATEGY GUIDANCE (MUST READ)\n"
+        section += "=" * 80 + "\n"
+        section += "⏰ IMPORTANT: Due to AI decision-making latency (data processing, analysis, validation),\n"
+        section += "   you are NOT suited for scalping or high-frequency trading.\n\n"
+        
+        section += "🎯 RECOMMENDED STRATEGY: SWING TRADING\n"
+        section += "   - Focus on larger price movements over hours to days\n"
+        section += "   - Target significant market moves (3%+ potential profit)\n"
+        section += "   - Avoid quick in-and-out trades that depend on precise timing\n"
+        section += "   - Quality over quantity - fewer, better-planned trades\n\n"
+        
+        section += "⏱️ MINIMUM HOLDING TIME GUIDANCE:\n"
+        section += "   - Consider positions you can hold for at least 2-4 hours\n"
+        section += "   - Ideal targets: 12-48 hours for most trades\n"
+        section += "   - Only enter if you see a clear multi-hour/day trend potential\n\n"
+        
+        section += "📈 FOCUS AREAS FOR ENTRY SIGNALS:\n"
+        section += "   - Clear trend continuations or reversals\n"
+        section += "   - Support/resistance breakouts with volume confirmation\n"
+        section += "   - Major technical pattern completions\n"
+        section += "   - Significant fundamental catalysts or market sentiment shifts\n\n"
+        
+        section += "🚫 AVOID:\n"
+        section += "   - Minute-by-minute price fluctuations\n"
+        section += "   - Scalping opportunities requiring split-second timing\n"
+        section += "   - Over-trading (multiple trades per hour)\n"
+        section += "   - Chasing small 0.5-1% moves\n\n"
+        
+        section += "💡 PATIENCE IS PROFITABLE: Wait for high-conviction setups with clear risk/reward\n"
+        section += "=" * 80 + "\n\n"
+        
         # Add explicit risk management constraints
         from ..config import trading_config
         total_value = account.get('total_value', 10000)

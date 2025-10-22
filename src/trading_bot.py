@@ -458,14 +458,6 @@ class TradingBot:
                 
                 logger.info(f"Validated {len(validated_decisions)}/{len(valid_decisions)} decisions")
                 
-                # Save ONLY validated decisions to database (with thinking)
-                # Invalid decisions are not saved to keep the database clean
-                for coin, decision in validated_decisions.items():
-                    try:
-                        self.db.save_ai_decision(coin, decision, thinking)
-                    except Exception as e:
-                        logger.error(f"Failed to save decision for {coin}: {e}")
-                
                 # Log rejected decisions for debugging
                 rejected_coins = set(valid_decisions.keys()) - set(validated_decisions.keys())
                 if rejected_coins:
@@ -473,7 +465,7 @@ class TradingBot:
                 
                 # Step 7: Execute trades
                 logger.info("Step 7: Executing trades...")
-                execution_summary = await self.execute_decisions(validated_decisions, formatted_positions, current_prices)
+                execution_summary = await self.execute_decisions(validated_decisions, formatted_positions, current_prices, thinking)
                 
                 # Log execution summary
                 total_actions = sum(execution_summary.values())
@@ -581,10 +573,17 @@ class TradingBot:
         self,
         decisions: Dict[str, Dict],
         current_positions: List[Dict],
-        current_prices: Dict[str, float]
+        current_prices: Dict[str, float],
+        thinking: str = ""
     ) -> Dict[str, int]:
         """
-        Execute validated trading decisions.
+        Execute validated trading decisions and save successful ones to database.
+        
+        Args:
+            decisions: Validated trading decisions
+            current_positions: Current portfolio positions
+            current_prices: Current market prices
+            thinking: AI thinking process to save with successful decisions
         
         Returns:
             Dict with execution summary: {'entries': int, 'closes': int, 'holds': int, 'no_actions': int}
@@ -603,10 +602,14 @@ class TradingBot:
             symbol = f"{coin}/USDT:USDT"
             
             try:
+                execution_success = False
+                
                 if signal == 'entry':
                     # Open new position
                     await self.execute_entry(coin, symbol, args, current_prices[coin])
                     summary['entries'] += 1
+                    execution_success = True
+                    logger.info(f"✅ Successfully opened position for {coin}")
                 
                 elif signal == 'close_position':
                     # Close existing position
@@ -627,20 +630,32 @@ class TradingBot:
                             position_map[coin]
                         )
                         summary['closes'] += 1
-                        logger.info(f"Closed position for {coin}")
+                        execution_success = True
+                        logger.info(f"✅ Successfully closed position for {coin}")
                     else:
                         logger.warning(f"Cannot close {coin}: no existing position")
                 
                 elif signal == 'hold':
                     summary['holds'] += 1
+                    execution_success = True
                     logger.debug(f"Holding position for {coin}")
                 
                 elif signal == 'no_action':
                     summary['no_actions'] += 1
+                    execution_success = True
                     logger.debug(f"No action for {coin}")
                 
+                # 🆕 只有交易成功执行后才保存AI决策到数据库
+                if execution_success:
+                    try:
+                        self.db.save_ai_decision(coin, decision, thinking)
+                        logger.debug(f"💾 Saved AI decision for {coin} to database")
+                    except Exception as e:
+                        logger.error(f"Failed to save decision for {coin}: {e}")
+                
             except Exception as e:
-                logger.error(f"Failed to execute {signal} for {coin}: {e}")
+                logger.error(f"❌ Failed to execute {signal} for {coin}: {e}")
+                # 交易失败，不保存AI决策
         
         return summary
     
