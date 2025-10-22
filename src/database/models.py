@@ -287,17 +287,94 @@ class TradingDatabase:
             """)
             return [dict(row) for row in cursor.fetchall()]
     
-    def get_account_history(self, hours: int = 24) -> List[Dict]:
-        """获取账户历史（用于图表）"""
+    def get_account_history(self, hours: int = 24, mode: str = 'auto') -> List[Dict]:
+        """
+        获取账户历史（用于图表）- 智能采样保持曲线完整性
+        
+        Args:
+            hours: 查询最近多少小时的数据
+            mode: 采样模式
+                - 'full': 返回全部数据（谨慎使用）
+                - 'auto': 智能采样，根据时间范围自动调整密度
+                - 'fast': 快速模式，最多200个点
+        
+        Returns:
+            账户历史数据列表，保持曲线关键特征
+        """
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM account_state 
-                WHERE timestamp >= datetime('now', '-' || ? || ' hours')
-                ORDER BY timestamp ASC
-            """, (hours,))
-            return [dict(row) for row in cursor.fetchall()]
+            
+            if mode == 'full':
+                # 返回全部数据（用户明确要求完整曲线）
+                cursor.execute("""
+                    SELECT * FROM account_state 
+                    WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+                    ORDER BY timestamp ASC
+                """, (hours,))
+                return [dict(row) for row in cursor.fetchall()]
+            
+            elif mode == 'fast':
+                # 快速模式：最多200个点
+                cursor.execute("""
+                    SELECT * FROM (
+                        SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp ASC) as rn,
+                               COUNT(*) OVER () as total_rows
+                        FROM account_state 
+                        WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+                    ) 
+                    WHERE rn % MAX(1, CAST(total_rows AS FLOAT) / 200) = 1
+                    ORDER BY timestamp ASC
+                    LIMIT 200
+                """, (hours,))
+                return [dict(row) for row in cursor.fetchall()]
+            
+            else:  # mode == 'auto'
+                # 🧠 智能采样：根据时间范围动态调整密度
+                target_points = 1000  # 目标点数，保持曲线平滑
+                
+                if hours <= 1:
+                    # 1小时内：每个点都保留（高精度）
+                    target_points = 2000
+                elif hours <= 6:
+                    # 6小时内：保持高精度
+                    target_points = 1500
+                elif hours <= 24:
+                    # 24小时：中等精度
+                    target_points = 1000
+                else:
+                    # 超过24小时：降低精度但保持曲线特征
+                    target_points = 800
+                
+                cursor.execute("""
+                    WITH sampled_data AS (
+                        SELECT *, 
+                               ROW_NUMBER() OVER (ORDER BY timestamp ASC) as rn,
+                               COUNT(*) OVER () as total_rows,
+                               LAG(total_value, 1) OVER (ORDER BY timestamp ASC) as prev_value,
+                               LEAD(total_value, 1) OVER (ORDER BY timestamp ASC) as next_value
+                        FROM account_state 
+                        WHERE timestamp >= datetime('now', '-' || ? || ' hours')
+                    )
+                    SELECT * FROM sampled_data
+                    WHERE 
+                        -- 总是保留第一个和最后一个点
+                        (rn = 1 OR rn = total_rows) OR
+                        -- 智能采样：保留关键转折点
+                        (
+                            -- 如果数据量小，返回全部
+                            (total_rows <= ?) OR
+                            -- 否则按间隔采样，但保留价值变化明显的点
+                            (rn % MAX(1, CAST(total_rows AS FLOAT) / ?) = 1) OR
+                            -- 保留转折点（价值变化方向改变的点）
+                            (ABS(total_value - COALESCE(prev_value, total_value)) > 
+                             ABS(COALESCE(next_value, total_value) - total_value) * 1.5)
+                        )
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                """, (hours, target_points, target_points, target_points + 100))
+                
+                return [dict(row) for row in cursor.fetchall()]
     
     def get_price_history(self, symbol: str, hours: int = 24) -> List[Dict]:
         """获取价格历史"""

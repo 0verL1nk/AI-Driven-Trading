@@ -26,10 +26,16 @@ export async function fetchPositions() {
   return res.json()
 }
 
-export async function fetchAccountHistory(hours: number = 24) {
-  const res = await fetch(`${API_BASE}/api/account_history?hours=${hours}`)
+export async function fetchAccountHistory(hours: number = 24, mode: string = 'auto') {
+  const res = await fetch(`${API_BASE}/api/account_history?hours=${hours}&mode=${mode}`)
   if (!res.ok) throw new Error('Failed to fetch account history')
-  return res.json()
+  const response = await res.json()
+  
+  // 兼容旧格式：如果返回的是数组，直接返回；如果是对象，返回data字段
+  if (Array.isArray(response)) {
+    return response
+  }
+  return response.data || []
 }
 
 export async function fetchPriceHistory(symbol: string, hours: number = 24) {

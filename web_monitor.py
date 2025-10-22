@@ -71,10 +71,24 @@ async def get_positions():
 
 
 @app.get("/api/account_history")
-async def get_account_history(hours: int = 24):
-    """获取账户历史数据"""
-    history = db.get_account_history(hours)
-    return history
+async def get_account_history(hours: int = 24, mode: str = 'auto'):
+    """
+    获取账户历史数据 - 智能采样保持曲线完整性
+    
+    Args:
+        hours: 查询最近多少小时的数据，默认24小时
+        mode: 采样模式
+            - 'full': 返回全部数据（完整曲线，可能很大）
+            - 'auto': 智能采样，平衡性能和曲线完整性（推荐）
+            - 'fast': 快速模式，最多200个点
+    """
+    history = db.get_account_history(hours, mode)
+    return {
+        "data": history,
+        "count": len(history),
+        "mode": mode,
+        "hours": hours
+    }
 
 
 @app.get("/api/price_history/{symbol}")

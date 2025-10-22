@@ -7,7 +7,8 @@ import { format } from 'date-fns'
 
 export default function AccountChart({ account }: { account: any }) {
   const [history, setHistory] = useState<any[]>([])
-  const [timeRange, setTimeRange] = useState<'ALL' | '72H'>('ALL')
+  const [timeRange, setTimeRange] = useState<'ALL' | '72H' | '24H' | '6H'>('24H')
+  const [mode, setMode] = useState<'auto' | 'full' | 'fast'>('auto')
 
   useEffect(() => {
     loadHistory()
@@ -15,12 +16,20 @@ export default function AccountChart({ account }: { account: any }) {
     // Auto-refresh history every 3 seconds for real-time curve updates
     const interval = setInterval(loadHistory, 3000)
     return () => clearInterval(interval)
-  }, [timeRange])
+  }, [timeRange, mode])
 
   const loadHistory = async () => {
     try {
-      const hours = timeRange === '72H' ? 72 : 24 * 30 // 30 days for ALL
-      const data = await fetchAccountHistory(hours)
+      let hours: number
+      switch (timeRange) {
+        case '6H': hours = 6; break
+        case '24H': hours = 24; break
+        case '72H': hours = 72; break
+        case 'ALL': hours = 24 * 30; break // 30 days
+        default: hours = 24
+      }
+      
+      const data = await fetchAccountHistory(hours, mode)
       
       const formatted = data.map((d: any) => ({
         time: new Date(d.timestamp).getTime(),
@@ -50,28 +59,51 @@ export default function AccountChart({ account }: { account: any }) {
           </div>
         </div>
         
-        {/* Time Range Buttons */}
-        <div className="flex space-x-2">
-          <button
-            onClick={() => setTimeRange('ALL')}
-            className={`px-4 py-2 text-sm rounded ${
-              timeRange === 'ALL'
-                ? 'bg-white text-black'
-                : 'bg-gray-800 text-gray-400'
-            }`}
-          >
-            ALL
-          </button>
-          <button
-            onClick={() => setTimeRange('72H')}
-            className={`px-4 py-2 text-sm rounded ${
-              timeRange === '72H'
-                ? 'bg-white text-black'
-                : 'bg-gray-800 text-gray-400'
-            }`}
-          >
-            72H
-          </button>
+        {/* Time Range and Mode Controls */}
+        <div className="flex flex-col space-y-3">
+          {/* Time Range Buttons */}
+          <div className="flex space-x-2">
+            {(['6H', '24H', '72H', 'ALL'] as const).map((range) => (
+              <button
+                key={range}
+                onClick={() => setTimeRange(range)}
+                className={`px-3 py-1 text-sm rounded ${
+                  timeRange === range
+                    ? 'bg-white text-black'
+                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                }`}
+              >
+                {range}
+              </button>
+            ))}
+          </div>
+          
+          {/* Data Mode Selector */}
+          <div className="flex space-x-1 text-xs">
+            <span className="text-gray-500 mr-2">曲线:</span>
+            {(['fast', 'auto', 'full'] as const).map((modeOption) => (
+              <button
+                key={modeOption}
+                onClick={() => setMode(modeOption)}
+                className={`px-2 py-1 rounded text-xs ${
+                  mode === modeOption
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                }`}
+                title={
+                  modeOption === 'fast' ? '快速 (~200点)' :
+                  modeOption === 'auto' ? '智能采样 (推荐)' :
+                  '完整数据 (可能慢)'
+                }
+              >
+                {modeOption === 'fast' ? '快速' :
+                 modeOption === 'auto' ? '智能' : '完整'}
+              </button>
+            ))}
+            <span className="text-gray-600 ml-2 text-xs">
+              ({history.length} 点)
+            </span>
+          </div>
         </div>
       </div>
 
