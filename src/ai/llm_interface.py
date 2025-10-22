@@ -73,10 +73,6 @@ class OpenAIProvider(BaseLLMProvider):
                 "model": self.model,
                 "messages": [
                     {
-                        "role": "system",
-                        "content": "You are an expert cryptocurrency trader. Analyze market data and make trading decisions. Always output valid JSON only, no other text."
-                    },
-                    {
                         "role": "user",
                         "content": prompt
                     }

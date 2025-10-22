@@ -26,7 +26,7 @@ timeframes:
 # AI Decision Engine
 ai:
   provider: "openai"  # openai, anthropic, local
-  model: "THUDM/GLM-Z1-9B-0414"
+  model: "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
   base_url: ""  # 留空使用官方API，或填入第三方OpenAI兼容API地址
                 # 示例：https://api.oneapi.com/v1 (国内中转)
                 # 示例：http://localhost:8000/v1 (本地vLLM)
