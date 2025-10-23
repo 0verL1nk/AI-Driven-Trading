@@ -211,10 +211,36 @@ class OrderManager:
             entry_notional = abs(entry_price * amount)
             exit_notional = abs(exit_price * amount)
             
+            # 🚀 获取真实杠杆倍数（增强版）
+            leverage = position.get('leverage', 1)
+            try:
+                # 如果position中没有杠杆或为默认值，尝试从交易所API获取
+                if leverage == 1:
+                    # 获取当前持仓信息
+                    current_positions = await self.exchange.exchange.fetch_positions([symbol])
+                    for pos in current_positions:
+                        if pos.get('symbol') == symbol and float(pos.get('contracts', 0)) != 0:
+                            leverage = int(pos.get('leverage', 1))
+                            logger.debug(f"获取到 {coin} 的杠杆倍数: {leverage}x (来源: API持仓查询)")
+                            break
+                    
+                # 如果还是获取不到，尝试从交易所杠杆设置API
+                if leverage == 1:
+                    try:
+                        leverage_info = await self.exchange.exchange.fetch_leverage(symbol)
+                        if leverage_info and 'leverage' in leverage_info:
+                            leverage = int(leverage_info['leverage'])
+                            logger.debug(f"获取到 {coin} 的杠杆倍数: {leverage}x (来源: 杠杆设置API)")
+                    except Exception as lev_err:
+                        logger.debug(f"获取杠杆设置失败: {lev_err}")
+                        
+            except Exception as e:
+                logger.debug(f"获取 {coin} 杠杆倍数失败，使用position默认值: {e}")
+            
             # Record trade history
             # Use close_time as fallback if entry_time is None
             trade_record = {
-                'entry_time': entry_time if entry_time else close_time,
+                'entry_timestamp': entry_time if entry_time else close_time,
                 'symbol': symbol,
                 'side': 'long' if quantity > 0 else 'short',
                 'quantity': amount,
@@ -222,7 +248,7 @@ class OrderManager:
                 'exit_price': exit_price,
                 'entry_notional': entry_notional,
                 'exit_notional': exit_notional,
-                'leverage': position.get('leverage', 1),
+                'leverage': leverage,  # 🚀 使用真实杠杆倍数
                 'pnl': pnl,
                 'pnl_percent': pnl_percent,
                 'duration_minutes': duration_minutes,
@@ -293,6 +319,180 @@ class OrderManager:
         
         except Exception as e:
             logger.warning(f"Failed to fetch open orders for {symbol}: {e}")
+    
+    async def check_completed_orders(self) -> List[Dict]:
+        """
+        检查活跃订单中是否有已完成的止盈止损订单
+        
+        Returns:
+            已完成订单的列表，每个订单包含交易信息
+        """
+        completed_trades = []
+        
+        # 遍历所有活跃订单
+        coins_to_remove = []
+        
+        for coin, orders in list(self.active_orders.items()):
+            try:
+                # 查找入场订单信息
+                entry_info = None
+                sl_order = None
+                tp_order = None
+                
+                for order_info in orders:
+                    if order_info['type'] == 'entry':
+                        entry_info = order_info
+                    elif order_info['type'] == 'stop_loss':
+                        sl_order = order_info
+                    elif order_info['type'] == 'take_profit':
+                        tp_order = order_info
+                
+                if not entry_info:
+                    continue
+                
+                # 检查止盈止损订单状态
+                for order_type, order_info in [('stop_loss', sl_order), ('take_profit', tp_order)]:
+                    if not order_info:
+                        continue
+                        
+                    try:
+                        order_id = order_info['order']['id']
+                        symbol = entry_info['order']['symbol']
+                        
+                        # 获取订单状态
+                        order_status = await self.exchange.exchange.fetch_order(order_id, symbol)
+                        
+                        if order_status['status'] == 'closed':
+                            logger.info(f"🎯 检测到 {order_type} 订单已执行: {order_id} for {coin}")
+                            
+                            # 🚫 立即取消另一个订单（止盈触发取消止损，止损触发取消止盈）
+                            other_order = None
+                            if order_type == 'stop_loss' and tp_order:
+                                other_order = tp_order
+                                other_type = 'take_profit'
+                            elif order_type == 'take_profit' and sl_order:
+                                other_order = sl_order  
+                                other_type = 'stop_loss'
+                            
+                            if other_order:
+                                try:
+                                    other_order_id = other_order['order']['id']
+                                    await self.exchange.exchange.cancel_order(other_order_id, symbol)
+                                    logger.info(f"🚫 已取消对应的 {other_type} 订单: {other_order_id}")
+                                except Exception as cancel_err:
+                                    logger.warning(f"取消 {other_type} 订单失败: {cancel_err}")
+                            
+                            # 计算交易信息
+                            entry_order = entry_info['order']
+                            entry_time = entry_info.get('entry_time', datetime.now())
+                            exit_time = datetime.now()
+                            
+                            # 计算持仓时长
+                            if isinstance(entry_time, datetime):
+                                holding_duration = exit_time - entry_time
+                                duration_minutes = int(holding_duration.total_seconds() / 60)
+                            else:
+                                duration_minutes = 0
+                            
+                            # 计算P&L
+                            entry_price = float(entry_order.get('price', 0) or entry_order.get('average', 0))
+                            exit_price = float(order_status.get('price', 0) or order_status.get('average', 0))
+                            quantity = float(entry_order.get('amount', 0))
+                            
+                            if entry_order['side'] == 'buy':
+                                # Long position
+                                pnl = (exit_price - entry_price) * quantity
+                                side = 'long'
+                            else:
+                                # Short position  
+                                pnl = (entry_price - exit_price) * quantity
+                                side = 'short'
+                            
+                            # 计算收益率
+                            investment = entry_price * quantity
+                            pnl_percent = (pnl / investment) * 100 if investment > 0 else 0.0
+                            
+                            # 🚀 获取真实杠杆倍数
+                            leverage = 1  # 默认值
+                            try:
+                                # 方法1: 从交易所获取当前持仓信息中的杠杆
+                                positions = await self.exchange.exchange.fetch_positions([symbol])
+                                for pos in positions:
+                                    if pos.get('symbol') == symbol and float(pos.get('contracts', 0)) != 0:
+                                        leverage = int(pos.get('leverage', 1))
+                                        logger.debug(f"获取到 {coin} 的杠杆倍数: {leverage}x (来源: 持仓信息)")
+                                        break
+                                
+                                # 方法2: 如果持仓信息获取失败，尝试从订单信息获取
+                                if leverage == 1:
+                                    # 检查原始订单是否包含杠杆信息
+                                    if 'info' in entry_order and entry_order['info']:
+                                        order_leverage = entry_order['info'].get('leverage')
+                                        if order_leverage:
+                                            leverage = int(order_leverage)
+                                            logger.debug(f"获取到 {coin} 的杠杆倍数: {leverage}x (来源: 入场订单)")
+                                
+                                # 方法3: 从交易所API查询杠杆设置
+                                if leverage == 1:
+                                    try:
+                                        leverage_info = await self.exchange.exchange.fetch_leverage(symbol)
+                                        if leverage_info and 'leverage' in leverage_info:
+                                            leverage = int(leverage_info['leverage'])
+                                            logger.debug(f"获取到 {coin} 的杠杆倍数: {leverage}x (来源: API查询)")
+                                    except Exception as lev_err:
+                                        logger.debug(f"API查询杠杆失败: {lev_err}")
+                                
+                            except Exception as e:
+                                logger.debug(f"获取 {coin} 杠杆倍数失败，使用默认值1: {e}")
+                            
+                            # 确定关闭原因
+                            reason = 'stop_loss' if order_type == 'stop_loss' else 'take_profit'
+                            
+                            # 记录交易
+                            trade_record = {
+                                'entry_timestamp': entry_time.isoformat() if isinstance(entry_time, datetime) else str(entry_time),
+                                'symbol': coin,
+                                'side': side,
+                                'quantity': quantity,
+                                'entry_price': entry_price,
+                                'exit_price': exit_price,
+                                'entry_notional': entry_price * quantity,
+                                'exit_notional': exit_price * quantity,
+                                'leverage': leverage,  # 🚀 使用真实杠杆倍数
+                                'pnl': pnl,
+                                'pnl_percent': pnl_percent,
+                                'duration_minutes': duration_minutes,
+                                'reason': reason
+                            }
+                            
+                            # 保存到数据库
+                            if hasattr(self, 'db') and self.db:
+                                self.db.save_trade(trade_record)
+                                
+                                duration_str = f"{duration_minutes // 60}h {duration_minutes % 60}m" if duration_minutes >= 60 else f"{duration_minutes}m"
+                                logger.info(f"✅ {reason.upper()} 触发记录: {coin} P&L={pnl:.2f} ({pnl_percent:.2f}%), Duration: {duration_str}")
+                            
+                            completed_trades.append(trade_record)
+                            
+                            # 标记要移除
+                            coins_to_remove.append(coin)
+                            break  # 找到一个完成的订单就够了
+                            
+                    except Exception as e:
+                        logger.debug(f"检查订单 {order_id} 状态失败: {e}")
+                        continue
+                        
+            except Exception as e:
+                logger.error(f"检查 {coin} 的订单状态失败: {e}")
+                continue
+        
+        # 清理已完成的订单
+        for coin in coins_to_remove:
+            if coin in self.active_orders:
+                del self.active_orders[coin]
+                logger.debug(f"已清理 {coin} 的活跃订单记录")
+        
+        return completed_trades
     
     async def check_invalidation_conditions(
         self,

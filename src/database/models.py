@@ -425,7 +425,7 @@ class TradingDatabase:
                  duration_minutes, reason)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                trade.get('entry_time'),
+                trade.get('entry_timestamp'),
                 trade.get('symbol'),
                 trade.get('side'),
                 trade.get('quantity'),
