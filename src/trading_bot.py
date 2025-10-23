@@ -201,6 +201,20 @@ class TradingBot:
                 except Exception as e:
                     logger.debug(f"Error updating account state: {e}")
                 
+                # 🎯 检查已完成的止盈止损订单
+                try:
+                    completed_trades = await self.order_manager.check_completed_orders()
+                    if completed_trades:
+                        logger.info(f"📈 检测到 {len(completed_trades)} 笔自动完成的交易")
+                        for trade in completed_trades:
+                            reason = trade.get('reason', 'unknown')
+                            pnl = trade.get('pnl', 0)
+                            symbol = trade.get('symbol', 'unknown')
+                            logger.info(f"   └─ {symbol}: {reason} 触发, P&L={pnl:.2f}")
+                            
+                except Exception as e:
+                    logger.debug(f"Error checking completed orders: {e}")
+                
                 # 等待3秒
                 await asyncio.sleep(self.price_update_interval)
                 
