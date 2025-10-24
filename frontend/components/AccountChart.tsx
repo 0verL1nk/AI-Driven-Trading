@@ -133,8 +133,9 @@ export default function AccountChart({ account }: { account: any }) {
               <YAxis 
                 stroke="#666"
                 tick={{ fill: '#666', fontSize: 12 }}
-                domain={['dataMin - 100', 'dataMax + 100']}
+                domain={['auto', 'auto']}
                 tickFormatter={getYAxisFormatter()}
+                allowDecimals={false}
               />
               <Tooltip
                 contentStyle={{
