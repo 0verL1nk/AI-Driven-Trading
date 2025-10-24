@@ -46,6 +46,13 @@ export default function AccountChart({ account }: { account: any }) {
   const currentValue = account?.total_value || 10000
   const returnPct = account?.total_return || 0
 
+  // 格式化数字，智能省略不必要的小数点
+  const formatNumber = (num: number, decimals: number): string => {
+    const fixed = num.toFixed(decimals)
+    // 如果小数部分全是0，则去掉小数点
+    return parseFloat(fixed).toString()
+  }
+
   // 计算数据范围，用于动态格式化
   const getYAxisFormatter = () => {
     if (history.length === 0) {
@@ -61,23 +68,23 @@ export default function AccountChart({ account }: { account: any }) {
     return (value: number) => {
       // 如果最大值超过100万，使用M格式
       if (maxValue >= 1000000) {
-        return `$${(value / 1000000).toFixed(1)}M`
+        return `$${formatNumber(value / 1000000, 1)}M`
       }
       // 如果最大值超过10万，使用k格式（不带小数）
       else if (maxValue >= 100000) {
         return `$${Math.round(value / 1000)}k`
       }
-      // 如果最大值超过1万，使用k格式（带一位小数）
+      // 如果最大值超过1万，使用k格式（智能小数）
       else if (maxValue >= 10000) {
-        return `$${(value / 1000).toFixed(1)}k`
+        return `$${formatNumber(value / 1000, 1)}k`
       }
-      // 如果最大值超过1000，使用k格式（带一位小数）
+      // 如果最大值超过1000，使用k格式（智能小数）
       else if (maxValue >= 1000) {
-        return `$${(value / 1000).toFixed(1)}k`
+        return `$${formatNumber(value / 1000, 1)}k`
       }
       // 如果范围较小且数值也小，显示两位小数
       else if (range < 10 && maxValue < 100) {
-        return `$${value.toFixed(2)}`
+        return `$${formatNumber(value, 2)}`
       }
       // 如果数值较小，显示整数
       else if (maxValue < 1000) {
