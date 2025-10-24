@@ -26,7 +26,7 @@ timeframes:
 # AI Decision Engine
 ai:
   provider: "openai"  # openai, anthropic, local
-  model: "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+  model: "deepseek-ai/deepseek-v3.1-terminus"
   is_reasoning_model: true  # 是否为推理模型(如DeepSeek-R1, o1等)
                             # true: 模型自带推理能力,一步输出思考+JSON
                             # false: 普通模型,需要两步调用(第一步思考,第二步输出JSON)
