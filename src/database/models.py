@@ -323,7 +323,10 @@ class TradingDatabase:
                         FROM account_state 
                         WHERE timestamp >= datetime('now', '-' || ? || ' hours')
                     ) 
-                    WHERE rn % MAX(1, CAST(total_rows AS FLOAT) / 200) = 1
+                    WHERE 
+                        -- 如果总数据量<=200,返回全部;否则按间隔采样
+                        total_rows <= 200 OR 
+                        rn % MAX(1, CAST((total_rows + 199) / 200 AS INTEGER)) = 1
                     ORDER BY timestamp ASC
                     LIMIT 200
                 """, (hours,))
@@ -365,14 +368,14 @@ class TradingDatabase:
                             -- 如果数据量小，返回全部
                             (total_rows <= ?) OR
                             -- 否则按间隔采样，但保留价值变化明显的点
-                            (rn % MAX(1, CAST(total_rows AS FLOAT) / ?) = 1) OR
+                            (rn % MAX(1, CAST((total_rows + ? - 1) / ? AS INTEGER)) = 1) OR
                             -- 保留转折点（价值变化方向改变的点）
                             (ABS(total_value - COALESCE(prev_value, total_value)) > 
                              ABS(COALESCE(next_value, total_value) - total_value) * 1.5)
                         )
                     ORDER BY timestamp ASC
                     LIMIT ?
-                """, (hours, target_points, target_points, target_points + 100))
+                """, (hours, target_points, target_points, target_points, target_points + 100))
                 
                 return [dict(row) for row in cursor.fetchall()]
     
