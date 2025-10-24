@@ -46,6 +46,48 @@ export default function AccountChart({ account }: { account: any }) {
   const currentValue = account?.total_value || 10000
   const returnPct = account?.total_return || 0
 
+  // 计算数据范围，用于动态格式化
+  const getYAxisFormatter = () => {
+    if (history.length === 0) {
+      return (value: number) => `$${value.toFixed(0)}`
+    }
+    
+    const values = history.map(d => d.value)
+    const maxValue = Math.max(...values)
+    const minValue = Math.min(...values)
+    const range = maxValue - minValue
+    
+    // 根据数据范围动态选择格式
+    return (value: number) => {
+      // 如果最大值超过100万，使用M格式
+      if (maxValue >= 1000000) {
+        return `$${(value / 1000000).toFixed(1)}M`
+      }
+      // 如果最大值超过10万，使用k格式（不带小数）
+      else if (maxValue >= 100000) {
+        return `$${Math.round(value / 1000)}k`
+      }
+      // 如果最大值超过1万，使用k格式（带一位小数）
+      else if (maxValue >= 10000) {
+        return `$${(value / 1000).toFixed(1)}k`
+      }
+      // 如果最大值超过1000，使用k格式（带一位小数）
+      else if (maxValue >= 1000) {
+        return `$${(value / 1000).toFixed(1)}k`
+      }
+      // 如果范围较小且数值也小，显示两位小数
+      else if (range < 10 && maxValue < 100) {
+        return `$${value.toFixed(2)}`
+      }
+      // 如果数值较小，显示整数
+      else if (maxValue < 1000) {
+        return `$${value.toFixed(0)}`
+      }
+      // 默认显示整数
+      return `$${value.toFixed(0)}`
+    }
+  }
+
   return (
     <div>
       {/* Stats */}
@@ -92,6 +134,7 @@ export default function AccountChart({ account }: { account: any }) {
                 stroke="#666"
                 tick={{ fill: '#666', fontSize: 12 }}
                 domain={['dataMin - 100', 'dataMax + 100']}
+                tickFormatter={getYAxisFormatter()}
               />
               <Tooltip
                 contentStyle={{
@@ -100,6 +143,13 @@ export default function AccountChart({ account }: { account: any }) {
                   borderRadius: '4px',
                 }}
                 labelStyle={{ color: '#fff' }}
+                formatter={(value: any) => [
+                  `$${parseFloat(value).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })}`,
+                  'Account Value'
+                ]}
               />
               <Line
                 type="monotone"
