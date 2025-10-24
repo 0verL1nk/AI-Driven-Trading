@@ -88,6 +88,11 @@ class TradingConfig:
         base_url = self.trading_config['ai'].get('base_url', '')
         return base_url if base_url else None
     
+    @property
+    def is_reasoning_model(self) -> bool:
+        """Check if the AI model is a reasoning model (e.g., DeepSeek-R1, o1)."""
+        return self.trading_config['ai'].get('is_reasoning_model', False)
+    
     def get_ai_generation_kwargs(self) -> Dict:
         """
         Get optional LLM generation parameters from config.

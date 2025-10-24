@@ -27,6 +27,9 @@ timeframes:
 ai:
   provider: "openai"  # openai, anthropic, local
   model: "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B"
+  is_reasoning_model: true  # 是否为推理模型(如DeepSeek-R1, o1等)
+                            # true: 模型自带推理能力,一步输出思考+JSON
+                            # false: 普通模型,需要两步调用(第一步思考,第二步输出JSON)
   base_url: ""  # 留空使用官方API，或填入第三方OpenAI兼容API地址
                 # 示例：https://api.oneapi.com/v1 (国内中转)
                 # 示例：http://localhost:8000/v1 (本地vLLM)

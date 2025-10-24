@@ -206,6 +206,7 @@ class TradingLLM:
     """
     Main LLM interface for trading decisions.
     Supports provider fallback and retry logic.
+    Supports both reasoning models (one-step) and regular models (two-step).
     """
     
     def __init__(
@@ -213,10 +214,13 @@ class TradingLLM:
         primary_provider: str = "openai",
         model: Optional[str] = None,
         fallback_provider: Optional[str] = None,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
+        is_reasoning_model: bool = True
     ):
         self.primary = self._get_provider(primary_provider, model, base_url)
         self.fallback = self._get_provider(fallback_provider, model, base_url) if fallback_provider else None
+        self.is_reasoning_model = is_reasoning_model
+        logger.info(f"TradingLLM initialized: is_reasoning_model={is_reasoning_model}")
     
     def _get_provider(self, provider_name: str, model: Optional[str], base_url: Optional[str] = None) -> BaseLLMProvider:
         """Get LLM provider instance."""
@@ -241,6 +245,11 @@ class TradingLLM:
         """
         Generate trading decision from prompt using Langchain + Pydantic parser.
         
+        For reasoning models (DeepSeek-R1, o1): One-step generation with built-in reasoning
+        For regular models (GPT-4, Claude): Two-step process:
+            1. Generate thinking/analysis
+            2. Generate JSON decision with context from step 1
+        
         Args:
             prompt: Formatted trading prompt
             max_retries: Number of retries on failure
@@ -252,6 +261,26 @@ class TradingLLM:
                 - 'thinking': AI reasoning/thinking process (if available)
                 - 'raw_response': Raw LLM response text
         """
+        # Check if this is a reasoning model or regular model
+        if self.is_reasoning_model:
+            # Reasoning model: One-step process (existing logic)
+            return await self._decide_one_step(prompt, max_retries, **kwargs)
+        else:
+            # Regular model: Two-step process (new logic)
+            return await self._decide_two_step(prompt, max_retries, **kwargs)
+    
+    async def _decide_one_step(
+        self,
+        prompt: str,
+        max_retries: int = 3,
+        **kwargs
+    ) -> Dict:
+        """
+        One-step decision for reasoning models (e.g., DeepSeek-R1, o1).
+        Model generates thinking + JSON in single call.
+        """
+        logger.info("🧠 Using ONE-STEP process (reasoning model)")
+        
         for attempt in range(max_retries):
             try:
                 # Try primary provider (returns Dict with 'content' and optionally 'reasoning_content')
@@ -333,6 +362,149 @@ class TradingLLM:
                     raise
         
         raise RuntimeError("All LLM attempts failed")
+    
+    async def _decide_two_step(
+        self,
+        prompt: str,
+        max_retries: int = 3,
+        **kwargs
+    ) -> Dict:
+        """
+        Two-step decision for regular models (e.g., GPT-4, Claude).
+        Step 1: Generate thinking/analysis
+        Step 2: Generate JSON decision with context from step 1
+        """
+        logger.info("🧠 Using TWO-STEP process (regular model)")
+        
+        for attempt in range(max_retries):
+            try:
+                # STEP 1: Ask model to think and analyze
+                logger.info(f"📝 STEP 1/2: Requesting thinking/analysis (attempt {attempt + 1})")
+                thinking_prompt = self._build_thinking_prompt(prompt)
+                
+                # Get thinking response
+                thinking_dict = await self.primary.generate(thinking_prompt, **kwargs)
+                thinking_text = thinking_dict.get('content', '')
+                
+                if not thinking_text or len(thinking_text) < 50:
+                    logger.warning(f"⚠️ Thinking response too short: {len(thinking_text)} chars")
+                    if attempt < max_retries - 1:
+                        logger.info(f"🔄 Retrying step 1... (attempt {attempt + 2}/{max_retries})")
+                        continue
+                
+                logger.info(f"✅ Step 1 complete: {len(thinking_text)} characters of thinking")
+                logger.info(f"💭 Thinking preview: {thinking_text[:300]}...")
+                
+                # STEP 2: Ask model to generate JSON decision based on thinking
+                logger.info(f"📊 STEP 2/2: Requesting JSON decision with context (attempt {attempt + 1})")
+                decision_prompt = self._build_decision_prompt(prompt, thinking_text)
+                
+                # Get decision response
+                decision_dict = await self.primary.generate(decision_prompt, **kwargs)
+                decision_text = decision_dict.get('content', '')
+                
+                # Parse and validate with Langchain + Pydantic
+                decisions = self._parse_with_pydantic(decision_text)
+                
+                logger.info(f"✅ Two-step LLM decision complete (attempt {attempt + 1})")
+                
+                # Return decisions with thinking from step 1
+                return {
+                    'decisions': decisions,
+                    'thinking': thinking_text,  # Thinking from step 1
+                    'raw_response': decision_text[:1000]  # Decision JSON from step 2
+                }
+            
+            except OutputParserException as e:
+                logger.warning(f"❌ Step 2 parsing failed (attempt {attempt + 1}): {e}")
+                logger.debug(f"Decision response: {decision_text[:500]}...")
+                
+                if attempt < max_retries - 1:
+                    logger.info(f"🔄 Retrying two-step process... (attempt {attempt + 2}/{max_retries})")
+                else:
+                    # Last attempt failed, try legacy parser
+                    logger.warning("⚠️ All parsing attempts failed, trying legacy parser...")
+                    try:
+                        legacy_result = self._parse_response_legacy(decision_text)
+                        return {
+                            'decisions': legacy_result,
+                            'thinking': thinking_text,
+                            'raw_response': decision_text[:1000]
+                        }
+                    except Exception as legacy_error:
+                        logger.error(f"❌ Legacy parser also failed: {legacy_error}")
+                        raise e
+            
+            except Exception as e:
+                logger.error(f"❌ Two-step process failed (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"🔄 Retrying... (attempt {attempt + 2}/{max_retries})")
+                else:
+                    raise
+        
+        raise RuntimeError("All two-step LLM attempts failed")
+    
+    def _build_thinking_prompt(self, original_prompt: str) -> str:
+        """
+        Build prompt for step 1: asking model to think and analyze.
+        
+        Args:
+            original_prompt: The original trading prompt with market data
+            
+        Returns:
+            Prompt for thinking step
+        """
+        thinking_prompt = f"""{original_prompt}
+
+========================================
+STEP 1: THINKING AND ANALYSIS
+========================================
+
+Please analyze the market data above and think through your trading strategy.
+
+Consider the following in your analysis:
+1. Market trends for each coin (bullish, bearish, sideways)
+2. Technical indicators (RSI, MACD, EMA crossovers, volume)
+3. Risk/reward ratios for potential trades
+4. Current positions and portfolio balance
+5. Market sentiment and volatility
+
+DO NOT output JSON yet. Just provide your detailed thinking and analysis in natural language.
+
+Your analysis:"""
+        
+        return thinking_prompt
+    
+    def _build_decision_prompt(self, original_prompt: str, thinking: str) -> str:
+        """
+        Build prompt for step 2: asking model to output JSON decision.
+        
+        Args:
+            original_prompt: The original trading prompt with market data
+            thinking: The thinking/analysis from step 1
+            
+        Returns:
+            Prompt for decision step
+        """
+        decision_prompt = f"""{original_prompt}
+
+========================================
+YOUR PREVIOUS ANALYSIS (STEP 1)
+========================================
+
+{thinking}
+
+========================================
+STEP 2: GENERATE JSON DECISION
+========================================
+
+Based on your analysis above, now output your trading decisions in the required JSON format.
+
+Follow the output format instructions provided in the original prompt above.
+
+Your JSON decision:"""
+        
+        return decision_prompt
     
     def _extract_thinking(self, response_text: str) -> str:
         """

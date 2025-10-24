@@ -57,7 +57,8 @@ class TradingBot:
         self.llm = TradingLLM(
             primary_provider=trading_config.ai_provider,
             model=trading_config.ai_model,
-            base_url=base_url
+            base_url=base_url,
+            is_reasoning_model=trading_config.is_reasoning_model
         )
         self.validator = DecisionValidator(trading_config.risk_params)
         
