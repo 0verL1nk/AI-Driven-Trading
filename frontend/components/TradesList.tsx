@@ -1,4 +1,5 @@
 import { format } from 'date-fns'
+import { parseUTCTime } from '@/lib/utils'
 
 export default function TradesList({ trades }: { trades: any[] }) {
   const formatDuration = (minutes: number) => {
@@ -20,7 +21,7 @@ export default function TradesList({ trades }: { trades: any[] }) {
           const pnl = trade.pnl || 0
           const pnlPercent = trade.pnl_percent || 0
           const coin = formatCoin(trade.symbol)
-          const closeTime = trade.close_timestamp ? format(new Date(trade.close_timestamp), 'MM/dd, h:mm a') : '-'
+          const closeTime = trade.close_timestamp ? format(parseUTCTime(trade.close_timestamp), 'MM/dd, h:mm a') : '-'
 
           return (
             <div

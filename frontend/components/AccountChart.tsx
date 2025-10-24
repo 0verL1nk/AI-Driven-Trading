@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { fetchAccountHistory } from '@/lib/api'
 import { format } from 'date-fns'
+import { parseUTCTime, formatNumber as formatNum } from '@/lib/utils'
 
 export default function AccountChart({ account }: { account: any }) {
   const [history, setHistory] = useState<any[]>([])
@@ -31,11 +32,14 @@ export default function AccountChart({ account }: { account: any }) {
       
       const data = await fetchAccountHistory(hours, mode)
       
-      const formatted = data.map((d: any) => ({
-        time: new Date(d.timestamp).getTime(),
-        value: d.total_value,
-        label: format(new Date(d.timestamp), 'MMM dd HH:mm'),
-      }))
+      const formatted = data.map((d: any) => {
+        const localTime = parseUTCTime(d.timestamp)
+        return {
+          time: localTime.getTime(),
+          value: d.total_value,
+          label: format(localTime, 'MMM dd HH:mm'),
+        }
+      })
       
       setHistory(formatted)
     } catch (error) {
@@ -45,13 +49,6 @@ export default function AccountChart({ account }: { account: any }) {
 
   const currentValue = account?.total_value || 10000
   const returnPct = account?.total_return || 0
-
-  // 格式化数字，智能省略不必要的小数点
-  const formatNumber = (num: number, decimals: number): string => {
-    const fixed = num.toFixed(decimals)
-    // 如果小数部分全是0，则去掉小数点
-    return parseFloat(fixed).toString()
-  }
 
   // 计算数据范围，用于动态格式化
   const getYAxisFormatter = () => {
@@ -68,7 +65,7 @@ export default function AccountChart({ account }: { account: any }) {
     return (value: number) => {
       // 如果最大值超过100万，使用M格式
       if (maxValue >= 1000000) {
-        return `$${formatNumber(value / 1000000, 1)}M`
+        return `$${formatNum(value / 1000000, 1)}M`
       }
       // 如果最大值超过10万，使用k格式（不带小数）
       else if (maxValue >= 100000) {
@@ -76,15 +73,15 @@ export default function AccountChart({ account }: { account: any }) {
       }
       // 如果最大值超过1万，使用k格式（智能小数）
       else if (maxValue >= 10000) {
-        return `$${formatNumber(value / 1000, 1)}k`
+        return `$${formatNum(value / 1000, 1)}k`
       }
       // 如果最大值超过1000，使用k格式（智能小数）
       else if (maxValue >= 1000) {
-        return `$${formatNumber(value / 1000, 1)}k`
+        return `$${formatNum(value / 1000, 1)}k`
       }
       // 如果范围较小且数值也小，显示两位小数
       else if (range < 10 && maxValue < 100) {
-        return `$${formatNumber(value, 2)}`
+        return `$${formatNum(value, 2)}`
       }
       // 如果数值较小，显示整数
       else if (maxValue < 1000) {
