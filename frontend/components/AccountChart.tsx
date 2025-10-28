@@ -70,7 +70,7 @@ export default function AccountChart({ account }: { account: any }) {
               return acc
             }, [] as any[])
             // 按时间排序
-            return unique.sort((a, b) => a.time - b.time)
+            return unique.sort((a: any, b: any) => a.time - b.time)
           })
         }
       }
