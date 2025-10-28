@@ -37,10 +37,13 @@ export default function AccountChart({ account }: { account: any }) {
       
       // 第一次加载：全量请求
       // 后续加载：增量请求
+      const sinceParam = isFirstLoad ? undefined : (lastTimestamp || undefined)
+      console.log('[AccountChart] Loading:', { isFirstLoad, lastTimestamp, sinceParam })
+      
       const data = await fetchAccountHistory(
         hours, 
         mode, 
-        isFirstLoad ? undefined : lastTimestamp || undefined
+        sinceParam
       )
       
       const formatted = data.map((d: any) => {
@@ -55,10 +58,12 @@ export default function AccountChart({ account }: { account: any }) {
       
       if (isFirstLoad || !lastTimestamp) {
         // 第一次加载：直接设置全部数据
+        console.log('[AccountChart] First load, setting all data:', formatted.length)
         setHistory(formatted)
         setIsFirstLoad(false)
       } else {
         // 增量更新：合并新数据
+        console.log('[AccountChart] Incremental update, new data:', formatted.length)
         if (formatted.length > 0) {
           setHistory(prev => {
             // 去重并合并（基于时间戳）
@@ -78,6 +83,7 @@ export default function AccountChart({ account }: { account: any }) {
       // 更新最后时间戳
       if (formatted.length > 0) {
         const lastItem = formatted[formatted.length - 1]
+        console.log('[AccountChart] Updating lastTimestamp to:', lastItem.timestamp)
         setLastTimestamp(lastItem.timestamp)
       }
       
