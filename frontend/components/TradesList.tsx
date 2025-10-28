@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { format } from 'date-fns'
 import { parseUTCTime } from '@/lib/utils'
 import { fetchTrades } from '@/lib/api'
@@ -26,8 +26,8 @@ export default function TradesList() {
     return symbol.split('/')[0] || symbol
   }
 
-  const loadTrades = useCallback(async (page: number) => {
-    if (loading || !hasMore) return
+  const loadTrades = async (page: number) => {
+    if (loading) return
     
     setLoading(true)
     try {
@@ -46,11 +46,12 @@ export default function TradesList() {
     } finally {
       setLoading(false)
     }
-  }, [loading, hasMore, pageSize])
+  }
 
   // 初始加载
   useEffect(() => {
     loadTrades(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // 无限滚动监听
@@ -79,7 +80,8 @@ export default function TradesList() {
         observerRef.current.disconnect()
       }
     }
-  }, [loading, hasMore, loadTrades])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, hasMore])
 
   return (
     <div className="space-y-3">
