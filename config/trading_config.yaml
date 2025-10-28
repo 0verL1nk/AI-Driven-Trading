@@ -44,7 +44,10 @@ ai:
   stream: true  # 流式输出（推荐，用于提取reasoning_content）
   # thinking_budget: 1024  # DeepSeek-R1专用：推理预算（注释掉=不限制，或设置更大值如32768）
   # response_format: {"type": "json_object"}  # 强制JSON输出（某些模型需要）
-  # extra_body: {}  # 其他模型特定参数
+  # 推理模型专用参数（DeepSeek等）
+  extra_body: 
+    chat_template_kwargs: 
+      thinking: true  # 启用推理模式
 
 # Paper Trading Settings
 paper_trading:
