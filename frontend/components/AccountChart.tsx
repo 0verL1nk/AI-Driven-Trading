@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { fetchAccountHistory } from '@/lib/api'
 import { format } from 'date-fns'
@@ -9,22 +9,11 @@ import { parseUTCTime, formatNumber as formatNum } from '@/lib/utils'
 export default function AccountChart({ account }: { account: any }) {
   const [history, setHistory] = useState<any[]>([])
   const [timeRange, setTimeRange] = useState<'ALL' | '72H' | '24H' | '6H'>('24H')
-  const [lastTimestamp, setLastTimestamp] = useState<string | null>(null)
-  const [isFirstLoad, setIsFirstLoad] = useState(true)
+  const lastTimestampRef = useRef<string | null>(null)
+  const isFirstLoadRef = useRef(true)
   const mode = 'fast' // 默认使用快速模式
 
-  useEffect(() => {
-    // 切换时间范围时，重新全量加载
-    setIsFirstLoad(true)
-    setLastTimestamp(null)
-    loadHistory()
-    
-    // Auto-refresh history every 3 seconds for real-time curve updates
-    const interval = setInterval(loadHistory, 3000)
-    return () => clearInterval(interval)
-  }, [timeRange])
-
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     try {
       let hours: number
       switch (timeRange) {
@@ -37,8 +26,12 @@ export default function AccountChart({ account }: { account: any }) {
       
       // 第一次加载：全量请求
       // 后续加载：增量请求
-      const sinceParam = isFirstLoad ? undefined : (lastTimestamp || undefined)
-      console.log('[AccountChart] Loading:', { isFirstLoad, lastTimestamp, sinceParam })
+      const sinceParam = isFirstLoadRef.current ? undefined : (lastTimestampRef.current || undefined)
+      console.log('[AccountChart] Loading:', { 
+        isFirstLoad: isFirstLoadRef.current, 
+        lastTimestamp: lastTimestampRef.current, 
+        sinceParam 
+      })
       
       const data = await fetchAccountHistory(
         hours, 
@@ -56,11 +49,11 @@ export default function AccountChart({ account }: { account: any }) {
         }
       })
       
-      if (isFirstLoad || !lastTimestamp) {
+      if (isFirstLoadRef.current || !lastTimestampRef.current) {
         // 第一次加载：直接设置全部数据
         console.log('[AccountChart] First load, setting all data:', formatted.length)
         setHistory(formatted)
-        setIsFirstLoad(false)
+        isFirstLoadRef.current = false
       } else {
         // 增量更新：合并新数据
         console.log('[AccountChart] Incremental update, new data:', formatted.length)
@@ -84,13 +77,24 @@ export default function AccountChart({ account }: { account: any }) {
       if (formatted.length > 0) {
         const lastItem = formatted[formatted.length - 1]
         console.log('[AccountChart] Updating lastTimestamp to:', lastItem.timestamp)
-        setLastTimestamp(lastItem.timestamp)
+        lastTimestampRef.current = lastItem.timestamp
       }
       
     } catch (error) {
       console.error('Error loading history:', error)
     }
-  }
+  }, [timeRange, mode])
+
+  useEffect(() => {
+    // 切换时间范围时，重新全量加载
+    isFirstLoadRef.current = true
+    lastTimestampRef.current = null
+    loadHistory()
+    
+    // Auto-refresh history every 3 seconds for real-time curve updates
+    const interval = setInterval(loadHistory, 3000)
+    return () => clearInterval(interval)
+  }, [timeRange, loadHistory])
 
   const currentValue = account?.total_value || 10000
   const returnPct = account?.total_return || 0
