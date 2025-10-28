@@ -1,6 +1,6 @@
 # 🤖 AI-Driven Cryptocurrency Trading System
 
-基于nof1.ai架构的AI驱动加密货币交易系统，支持模拟交易和实盘交易。
+基于nof1.ai架构的AI驱动加密货币交易系统，支持模拟交易和实盘交易。预览网址: https://ai-driven-trading.vercel.app/
 
 ## ✨ 核心特性
 
