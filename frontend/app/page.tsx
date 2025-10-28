@@ -6,14 +6,13 @@ import AccountChart from '@/components/AccountChart'
 import DecisionsList from '@/components/DecisionsList'
 import PositionsList from '@/components/PositionsList'
 import TradesList from '@/components/TradesList'
-import { fetchAccount, fetchPrices, fetchDecisions, fetchPositions, fetchTrades } from '@/lib/api'
+import { fetchAccount, fetchPrices, fetchDecisions, fetchPositions } from '@/lib/api'
 
 export default function Home() {
   const [account, setAccount] = useState<any>(null)
   const [prices, setPrices] = useState<any[]>([])
   const [decisions, setDecisions] = useState<any[]>([])
   const [positions, setPositions] = useState<any[]>([])
-  const [trades, setTrades] = useState<any[]>([])
   const [activeTab, setActiveTab] = useState<'decisions' | 'positions' | 'trades'>('decisions')
 
   useEffect(() => {
@@ -27,19 +26,17 @@ export default function Home() {
 
   const loadData = async () => {
     try {
-      const [accountData, pricesData, decisionsData, positionsData, tradesData] = await Promise.all([
+      const [accountData, pricesData, decisionsData, positionsData] = await Promise.all([
         fetchAccount(),
         fetchPrices(),
         fetchDecisions(),
         fetchPositions(),
-        fetchTrades(),
       ])
       
       setAccount(accountData)
       setPrices(pricesData)
       setDecisions(decisionsData)
       setPositions(positionsData)
-      setTrades(tradesData)
     } catch (error) {
       console.error('Error loading data:', error)
     }
@@ -120,7 +117,7 @@ export default function Home() {
                 ) : activeTab === 'positions' ? (
                   <PositionsList positions={positions} />
                 ) : (
-                  <TradesList trades={trades} />
+                  <TradesList />
                 )}
               </div>
             </div>

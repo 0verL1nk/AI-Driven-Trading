@@ -465,7 +465,7 @@ class TradingDatabase:
             conn.commit()
     
     def get_trade_history(self, limit: int = 50) -> List[Dict]:
-        """获取交易历史"""
+        """获取交易历史（兼容旧接口）"""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -475,4 +475,23 @@ class TradingDatabase:
                 LIMIT ?
             """, (limit,))
             return [dict(row) for row in cursor.fetchall()]
+    
+    def get_trade_history_paginated(self, offset: int, limit: int) -> List[Dict]:
+        """获取交易历史（分页）"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM trade_history 
+                ORDER BY close_timestamp DESC 
+                LIMIT ? OFFSET ?
+            """, (limit, offset))
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_trades_count(self) -> int:
+        """获取交易总数"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM trade_history")
+            return cursor.fetchone()[0]
 

@@ -49,8 +49,8 @@ export async function fetchPriceHistory(symbol: string, hours: number = 24) {
   return res.json()
 }
 
-export async function fetchTrades(limit: number = 50) {
-  const res = await fetch(`${API_BASE}/api/trades?limit=${limit}`)
+export async function fetchTrades(page: number = 1, pageSize: number = 10) {
+  const res = await fetch(`${API_BASE}/api/trades?page=${page}&page_size=${pageSize}`)
   if (!res.ok) throw new Error('Failed to fetch trades')
   return res.json()
 }

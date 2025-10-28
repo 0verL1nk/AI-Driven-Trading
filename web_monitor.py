@@ -138,14 +138,34 @@ async def get_price_history(symbol: str, hours: int = 24):
 
 
 @app.get("/api/trades")
-async def get_trades(limit: int = 50):
-    """获取交易历史"""
-    # 输入验证：limit参数
-    if limit < 1 or limit > 1000:
-        limit = 50
+async def get_trades(page: int = 1, page_size: int = 10):
+    """
+    获取交易历史（分页）
     
-    trades = db.get_trade_history(limit)
-    return trades
+    Args:
+        page: 页码（从1开始）
+        page_size: 每页记录数
+    """
+    # 输入验证
+    if page < 1:
+        page = 1
+    if page_size < 1 or page_size > 100:
+        page_size = 10
+    
+    # 计算offset
+    offset = (page - 1) * page_size
+    
+    # 获取总数和数据
+    total = db.get_trades_count()
+    trades = db.get_trade_history_paginated(offset, page_size)
+    
+    return {
+        "data": trades,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": (total + page_size - 1) // page_size
+    }
 
 
 @app.websocket("/ws")
