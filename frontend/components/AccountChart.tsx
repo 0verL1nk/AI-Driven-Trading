@@ -4,13 +4,19 @@ import { useEffect, useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { fetchAccountHistory } from '@/lib/api'
 import { format } from 'date-fns'
+import { parseUTCTime, formatNumber as formatNum } from '@/lib/utils'
 
 export default function AccountChart({ account }: { account: any }) {
   const [history, setHistory] = useState<any[]>([])
   const [timeRange, setTimeRange] = useState<'ALL' | '72H' | '24H' | '6H'>('24H')
+  const [lastTimestamp, setLastTimestamp] = useState<string | null>(null)
+  const [isFirstLoad, setIsFirstLoad] = useState(true)
   const mode = 'fast' // 默认使用快速模式
 
   useEffect(() => {
+    // 切换时间范围时，重新全量加载
+    setIsFirstLoad(true)
+    setLastTimestamp(null)
     loadHistory()
     
     // Auto-refresh history every 3 seconds for real-time curve updates
@@ -29,15 +35,52 @@ export default function AccountChart({ account }: { account: any }) {
         default: hours = 24
       }
       
-      const data = await fetchAccountHistory(hours, mode)
+      // 第一次加载：全量请求
+      // 后续加载：增量请求
+      const data = await fetchAccountHistory(
+        hours, 
+        mode, 
+        isFirstLoad ? undefined : lastTimestamp || undefined
+      )
       
-      const formatted = data.map((d: any) => ({
-        time: new Date(d.timestamp).getTime(),
-        value: d.total_value,
-        label: format(new Date(d.timestamp), 'MMM dd HH:mm'),
-      }))
+      const formatted = data.map((d: any) => {
+        const localTime = parseUTCTime(d.timestamp)
+        return {
+          time: localTime.getTime(),
+          value: d.total_value,
+          label: format(localTime, 'MMM dd HH:mm'),
+          timestamp: d.timestamp // 保存原始时间戳用于增量查询
+        }
+      })
       
-      setHistory(formatted)
+      if (isFirstLoad || !lastTimestamp) {
+        // 第一次加载：直接设置全部数据
+        setHistory(formatted)
+        setIsFirstLoad(false)
+      } else {
+        // 增量更新：合并新数据
+        if (formatted.length > 0) {
+          setHistory(prev => {
+            // 去重并合并（基于时间戳）
+            const combined = [...prev, ...formatted]
+            const unique = combined.reduce((acc, curr) => {
+              if (!acc.find((item: any) => item.timestamp === curr.timestamp)) {
+                acc.push(curr)
+              }
+              return acc
+            }, [] as any[])
+            // 按时间排序
+            return unique.sort((a, b) => a.time - b.time)
+          })
+        }
+      }
+      
+      // 更新最后时间戳
+      if (formatted.length > 0) {
+        const lastItem = formatted[formatted.length - 1]
+        setLastTimestamp(lastItem.timestamp)
+      }
+      
     } catch (error) {
       console.error('Error loading history:', error)
     }
@@ -45,6 +88,48 @@ export default function AccountChart({ account }: { account: any }) {
 
   const currentValue = account?.total_value || 10000
   const returnPct = account?.total_return || 0
+
+  // 计算数据范围，用于动态格式化
+  const getYAxisFormatter = () => {
+    if (history.length === 0) {
+      return (value: number) => `$${value.toFixed(0)}`
+    }
+    
+    const values = history.map(d => d.value)
+    const maxValue = Math.max(...values)
+    const minValue = Math.min(...values)
+    const range = maxValue - minValue
+    
+    // 根据数据范围动态选择格式
+    return (value: number) => {
+      // 如果最大值超过100万，使用M格式
+      if (maxValue >= 1000000) {
+        return `$${formatNum(value / 1000000, 1)}M`
+      }
+      // 如果最大值超过10万，使用k格式（不带小数）
+      else if (maxValue >= 100000) {
+        return `$${Math.round(value / 1000)}k`
+      }
+      // 如果最大值超过1万，使用k格式（智能小数）
+      else if (maxValue >= 10000) {
+        return `$${formatNum(value / 1000, 1)}k`
+      }
+      // 如果最大值超过1000，使用k格式（智能小数）
+      else if (maxValue >= 1000) {
+        return `$${formatNum(value / 1000, 1)}k`
+      }
+      // 如果范围较小且数值也小，显示两位小数
+      else if (range < 10 && maxValue < 100) {
+        return `$${formatNum(value, 2)}`
+      }
+      // 如果数值较小，显示整数
+      else if (maxValue < 1000) {
+        return `$${value.toFixed(0)}`
+      }
+      // 默认显示整数
+      return `$${value.toFixed(0)}`
+    }
+  }
 
   return (
     <div>
@@ -91,7 +176,9 @@ export default function AccountChart({ account }: { account: any }) {
               <YAxis 
                 stroke="#666"
                 tick={{ fill: '#666', fontSize: 12 }}
-                domain={['dataMin - 100', 'dataMax + 100']}
+                domain={['auto', 'auto']}
+                tickFormatter={getYAxisFormatter()}
+                allowDecimals={false}
               />
               <Tooltip
                 contentStyle={{
@@ -100,6 +187,13 @@ export default function AccountChart({ account }: { account: any }) {
                   borderRadius: '4px',
                 }}
                 labelStyle={{ color: '#fff' }}
+                formatter={(value: any) => [
+                  `$${parseFloat(value).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })}`,
+                  'Account Value'
+                ]}
               />
               <Line
                 type="monotone"

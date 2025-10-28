@@ -1,4 +1,5 @@
 import { format } from 'date-fns'
+import { parseUTCTime } from '@/lib/utils'
 
 export default function DecisionsList({ decisions }: { decisions: any[] }) {
   const getDecisionColor = (decision: string) => {
@@ -50,7 +51,7 @@ export default function DecisionsList({ decisions }: { decisions: any[] }) {
                 </span>
               </div>
               <div className="text-xs text-gray-500">
-                {d.timestamp ? format(new Date(d.timestamp), 'MM/dd HH:mm') : '-'}
+                {d.timestamp ? format(parseUTCTime(d.timestamp), 'MM/dd HH:mm') : '-'}
               </div>
             </div>
 

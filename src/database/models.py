@@ -379,6 +379,26 @@ class TradingDatabase:
                 
                 return [dict(row) for row in cursor.fetchall()]
     
+    def get_account_history_since(self, since_timestamp: str) -> List[Dict]:
+        """
+        获取指定时间戳之后的账户历史（增量查询）
+        
+        Args:
+            since_timestamp: ISO格式时间戳，返回此时间之后的数据
+            
+        Returns:
+            账户历史数据列表
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM account_state 
+                WHERE timestamp > ?
+                ORDER BY timestamp ASC
+            """, (since_timestamp,))
+            return [dict(row) for row in cursor.fetchall()]
+    
     def get_price_history(self, symbol: str, hours: int = 24) -> List[Dict]:
         """获取价格历史"""
         with sqlite3.connect(self.db_path) as conn:

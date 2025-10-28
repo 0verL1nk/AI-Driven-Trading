@@ -1,4 +1,5 @@
 import { format } from 'date-fns'
+import { parseUTCTime } from '@/lib/utils'
 
 export default function PositionsList({ positions }: { positions: any[] }) {
   return (
@@ -59,7 +60,7 @@ export default function PositionsList({ positions }: { positions: any[] }) {
               {/* Opened */}
               {p.timestamp && (
                 <div className="mt-2 text-xs text-gray-500 border-t border-gray-800 pt-2">
-                  Opened: {format(new Date(p.timestamp), 'MMM dd, HH:mm')}
+                  Opened: {format(parseUTCTime(p.timestamp), 'MMM dd, HH:mm')}
                 </div>
               )}
             </div>

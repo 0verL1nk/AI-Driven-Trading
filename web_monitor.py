@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import logging
+import re
 from pathlib import Path
 from src.database import TradingDatabase
 import json
@@ -59,6 +60,10 @@ async def get_prices():
 @app.get("/api/decisions")
 async def get_decisions(limit: int = 20):
     """获取AI决策历史"""
+    # 输入验证：limit参数
+    if limit < 1 or limit > 1000:
+        limit = 20
+    
     decisions = db.get_recent_decisions(limit)
     return decisions
 
@@ -71,7 +76,11 @@ async def get_positions():
 
 
 @app.get("/api/account_history")
-async def get_account_history(hours: int = 24, mode: str = 'auto'):
+async def get_account_history(
+    hours: int = 24, 
+    mode: str = 'auto',
+    since: str = None  # 增量查询：返回此时间戳之后的数据
+):
     """
     获取账户历史数据 - 智能采样保持曲线完整性
     
@@ -81,19 +90,49 @@ async def get_account_history(hours: int = 24, mode: str = 'auto'):
             - 'full': 返回全部数据（完整曲线，可能很大）
             - 'auto': 智能采样，平衡性能和曲线完整性（推荐）
             - 'fast': 快速模式，最多200个点
+        since: 增量查询，ISO格式时间戳（可选）
+            - 如果提供，只返回此时间之后的新数据
+            - 用于前端增量更新，减少数据传输
     """
-    history = db.get_account_history(hours, mode)
-    return {
-        "data": history,
-        "count": len(history),
-        "mode": mode,
-        "hours": hours
-    }
+    # 输入验证：mode参数
+    if mode not in ['full', 'auto', 'fast']:
+        mode = 'auto'  # 默认使用auto模式
+    
+    # 输入验证：hours参数
+    if hours < 1 or hours > 720:  # 最多30天
+        hours = 24
+    
+    if since:
+        # 增量查询：只返回since之后的新数据
+        history = db.get_account_history_since(since)
+        return {
+            "data": history,
+            "count": len(history),
+            "mode": "incremental",
+            "since": since
+        }
+    else:
+        # 全量查询
+        history = db.get_account_history(hours, mode)
+        return {
+            "data": history,
+            "count": len(history),
+            "mode": mode,
+            "hours": hours
+        }
 
 
 @app.get("/api/price_history/{symbol}")
 async def get_price_history(symbol: str, hours: int = 24):
     """获取价格历史"""
+    # 输入验证：symbol参数（只允许字母、数字和特定符号）
+    if not re.match(r'^[A-Z0-9]+(/[A-Z0-9]+)*(:[A-Z0-9]+)?$', symbol):
+        return {"error": "Invalid symbol format"}
+    
+    # 输入验证：hours参数
+    if hours < 1 or hours > 720:
+        hours = 24
+    
     history = db.get_price_history(symbol, hours)
     return history
 
@@ -101,6 +140,10 @@ async def get_price_history(symbol: str, hours: int = 24):
 @app.get("/api/trades")
 async def get_trades(limit: int = 50):
     """获取交易历史"""
+    # 输入验证：limit参数
+    if limit < 1 or limit > 1000:
+        limit = 50
+    
     trades = db.get_trade_history(limit)
     return trades
 
