@@ -1,7 +1,11 @@
+import { useState, useMemo } from 'react'
 import { format } from 'date-fns'
 import { parseUTCTime } from '@/lib/utils'
 
 export default function TradesList({ trades }: { trades: any[] }) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10 // 每页显示10条
+
   const formatDuration = (minutes: number) => {
     if (minutes < 60) return `${minutes}M`
     const hours = Math.floor(minutes / 60)
@@ -14,10 +18,59 @@ export default function TradesList({ trades }: { trades: any[] }) {
     return symbol.split('/')[0] || symbol
   }
 
+  // 计算分页
+  const { currentTrades, totalPages } = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return {
+      currentTrades: trades.slice(startIndex, endIndex),
+      totalPages: Math.ceil(trades.length / itemsPerPage)
+    }
+  }, [trades, currentPage])
+
   return (
     <div className="space-y-4">
-      {trades && trades.length > 0 ? (
-        trades.map((trade, index) => {
+      {/* 分页控制 - 顶部 */}
+      {trades.length > itemsPerPage && (
+        <div className="flex items-center justify-between border-b border-gray-800 pb-3">
+          <div className="text-sm text-gray-500">
+            Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, trades.length)} of {trades.length} trades
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className={`px-3 py-1 text-sm rounded ${
+                currentPage === 1
+                  ? 'bg-gray-900 text-gray-600 cursor-not-allowed'
+                  : 'bg-gray-800 text-white hover:bg-gray-700'
+              }`}
+            >
+              ← Prev
+            </button>
+            <div className="flex items-center px-3 py-1 bg-gray-900 rounded text-sm">
+              <span className="text-white">{currentPage}</span>
+              <span className="text-gray-500 mx-1">/</span>
+              <span className="text-gray-400">{totalPages}</span>
+            </div>
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className={`px-3 py-1 text-sm rounded ${
+                currentPage === totalPages
+                  ? 'bg-gray-900 text-gray-600 cursor-not-allowed'
+                  : 'bg-gray-800 text-white hover:bg-gray-700'
+              }`}
+            >
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 交易列表 */}
+      {currentTrades && currentTrades.length > 0 ? (
+        currentTrades.map((trade, index) => {
           const pnl = trade.pnl || 0
           const pnlPercent = trade.pnl_percent || 0
           const coin = formatCoin(trade.symbol)
@@ -104,6 +157,39 @@ export default function TradesList({ trades }: { trades: any[] }) {
       ) : (
         <div className="text-center text-gray-500 py-8">
           No completed trades yet
+        </div>
+      )}
+
+      {/* 分页控制 - 底部 */}
+      {trades.length > itemsPerPage && (
+        <div className="flex items-center justify-center border-t border-gray-800 pt-3 space-x-2">
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            className={`px-3 py-1 text-sm rounded ${
+              currentPage === 1
+                ? 'bg-gray-900 text-gray-600 cursor-not-allowed'
+                : 'bg-gray-800 text-white hover:bg-gray-700'
+            }`}
+          >
+            ← Prev
+          </button>
+          <div className="flex items-center px-3 py-1 bg-gray-900 rounded text-sm">
+            <span className="text-white">{currentPage}</span>
+            <span className="text-gray-500 mx-1">/</span>
+            <span className="text-gray-400">{totalPages}</span>
+          </div>
+          <button
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}
+            className={`px-3 py-1 text-sm rounded ${
+              currentPage === totalPages
+                ? 'bg-gray-900 text-gray-600 cursor-not-allowed'
+                : 'bg-gray-800 text-white hover:bg-gray-700'
+            }`}
+          >
+            Next →
+          </button>
         </div>
       )}
     </div>

@@ -26,8 +26,13 @@ export async function fetchPositions() {
   return res.json()
 }
 
-export async function fetchAccountHistory(hours: number = 24, mode: string = 'auto') {
-  const res = await fetch(`${API_BASE}/api/account_history?hours=${hours}&mode=${mode}`)
+export async function fetchAccountHistory(hours: number = 24, mode: string = 'auto', since?: string) {
+  let url = `${API_BASE}/api/account_history?hours=${hours}&mode=${mode}`
+  if (since) {
+    url += `&since=${encodeURIComponent(since)}`
+  }
+  
+  const res = await fetch(url)
   if (!res.ok) throw new Error('Failed to fetch account history')
   const response = await res.json()
   

@@ -9,9 +9,14 @@ import { parseUTCTime, formatNumber as formatNum } from '@/lib/utils'
 export default function AccountChart({ account }: { account: any }) {
   const [history, setHistory] = useState<any[]>([])
   const [timeRange, setTimeRange] = useState<'ALL' | '72H' | '24H' | '6H'>('24H')
+  const [lastTimestamp, setLastTimestamp] = useState<string | null>(null)
+  const [isFirstLoad, setIsFirstLoad] = useState(true)
   const mode = 'fast' // 默认使用快速模式
 
   useEffect(() => {
+    // 切换时间范围时，重新全量加载
+    setIsFirstLoad(true)
+    setLastTimestamp(null)
     loadHistory()
     
     // Auto-refresh history every 3 seconds for real-time curve updates
@@ -30,7 +35,13 @@ export default function AccountChart({ account }: { account: any }) {
         default: hours = 24
       }
       
-      const data = await fetchAccountHistory(hours, mode)
+      // 第一次加载：全量请求
+      // 后续加载：增量请求
+      const data = await fetchAccountHistory(
+        hours, 
+        mode, 
+        isFirstLoad ? undefined : lastTimestamp || undefined
+      )
       
       const formatted = data.map((d: any) => {
         const localTime = parseUTCTime(d.timestamp)
@@ -38,10 +49,38 @@ export default function AccountChart({ account }: { account: any }) {
           time: localTime.getTime(),
           value: d.total_value,
           label: format(localTime, 'MMM dd HH:mm'),
+          timestamp: d.timestamp // 保存原始时间戳用于增量查询
         }
       })
       
-      setHistory(formatted)
+      if (isFirstLoad || !lastTimestamp) {
+        // 第一次加载：直接设置全部数据
+        setHistory(formatted)
+        setIsFirstLoad(false)
+      } else {
+        // 增量更新：合并新数据
+        if (formatted.length > 0) {
+          setHistory(prev => {
+            // 去重并合并（基于时间戳）
+            const combined = [...prev, ...formatted]
+            const unique = combined.reduce((acc, curr) => {
+              if (!acc.find((item: any) => item.timestamp === curr.timestamp)) {
+                acc.push(curr)
+              }
+              return acc
+            }, [] as any[])
+            // 按时间排序
+            return unique.sort((a, b) => a.time - b.time)
+          })
+        }
+      }
+      
+      // 更新最后时间戳
+      if (formatted.length > 0) {
+        const lastItem = formatted[formatted.length - 1]
+        setLastTimestamp(lastItem.timestamp)
+      }
+      
     } catch (error) {
       console.error('Error loading history:', error)
     }
