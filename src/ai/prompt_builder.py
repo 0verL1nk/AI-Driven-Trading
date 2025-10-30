@@ -44,6 +44,12 @@ Required format:
   "ETH": { ... }
 }
 
+RISK MANAGEMENT:
+- Before opening new positions, carefully check your available cash/equity to ensure sufficient margin
+- Consider existing positions when calculating required margin for new trades
+- High leverage trades require more margin - ensure you have enough equity before entering
+- If margin is insufficient, prefer "no_action" or close existing positions first
+
 CRITICAL: Your ENTIRE response must be valid JSON only. Start with { and end with }. Do not include any text before or after the JSON."""
     
     def build_trading_prompt(

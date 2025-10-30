@@ -230,4 +230,3 @@ class DecisionValidator:
                 )
         
         return base_position
-
