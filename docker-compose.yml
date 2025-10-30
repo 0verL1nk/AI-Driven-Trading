@@ -1,0 +1,57 @@
+# Docker Compose for easy deployment
+version: '3.8'
+
+services:
+  trading-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-trading-bot
+    restart: unless-stopped
+    ports:
+      - "8541:8541"  # Web API port
+    volumes:
+      # Mount logs directory for persistence
+      - ./logs:/app/logs
+      # Mount database file (for SQLite)
+      - ./trading_data.db:/app/trading_data.db
+      # Mount config directory
+      - ./config:/app/config
+    environment:
+      # Database configuration (use SQLite by default)
+      - DB_TYPE=${DB_TYPE:-sqlite}
+      - DB_PATH=${DB_PATH:-trading_data.db}
+      
+      # MySQL configuration (if using MySQL)
+      # - DB_TYPE=mysql
+      # - DB_HOST=${DB_HOST}
+      # - DB_PORT=${DB_PORT:-3306}
+      # - DB_USER=${DB_USER}
+      # - DB_PASSWORD=${DB_PASSWORD}
+      # - DB_NAME=${DB_NAME}
+      
+      # AI API configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      
+      # Trading configuration
+      - ENABLE_PAPER_TRADING=${ENABLE_PAPER_TRADING:-true}
+      - USE_TESTNET=${USE_TESTNET:-false}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      
+      # Exchange API (optional for paper trading)
+      - BINANCE_API_KEY=${BINANCE_API_KEY:-}
+      - BINANCE_API_SECRET=${BINANCE_API_SECRET:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8541/api/account', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - trading-network
+
+networks:
+  trading-network:
+    driver: bridge
+

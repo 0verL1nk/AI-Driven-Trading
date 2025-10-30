@@ -158,10 +158,17 @@ class TradingDecisionParser:
             if 'trade_signal_args' in decision_data:
                 # Nested format - extract inner data
                 logger.debug(f"{coin}: nested format detected")
-                processed_data[coin] = decision_data['trade_signal_args']
+                inner_data = decision_data['trade_signal_args'].copy()
+                # Ensure coin field is present
+                if 'coin' not in inner_data:
+                    inner_data['coin'] = coin
+                processed_data[coin] = inner_data
             elif 'signal' in decision_data or 'coin' in decision_data:
                 # Flat format (nof1.ai style) - use directly
                 logger.debug(f"{coin}: flat format detected")
+                # Ensure coin field is present
+                if 'coin' not in decision_data:
+                    decision_data['coin'] = coin
                 processed_data[coin] = decision_data
             else:
                 logger.warning(f"Unknown format for {coin}: missing 'signal' or 'trade_signal_args'")

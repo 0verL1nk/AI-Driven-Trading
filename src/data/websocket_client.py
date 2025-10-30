@@ -49,7 +49,8 @@ class BinanceWebSocketClient:
                 
                 while self.running:
                     try:
-                        message = await asyncio.wait_for(websocket.recv(), timeout=30)
+                        # 使用更短的超时以便快速响应关闭
+                        message = await asyncio.wait_for(websocket.recv(), timeout=1.0)
                         data = json.loads(message)
                         
                         if 'data' in data:
@@ -73,10 +74,14 @@ class BinanceWebSocketClient:
                                     await callback(symbol, kline_info)
                                     
                     except asyncio.TimeoutError:
+                        # 超时是正常的，检查是否应该继续运行
+                        if not self.running:
+                            break
                         # 发送ping保持连接
-                        if self.running:  # 只在运行时ping
+                        try:
                             await websocket.ping()
-                            logger.debug("WebSocket ping sent")
+                        except Exception:
+                            break
                     except asyncio.CancelledError:
                         # 任务被取消，正常退出
                         logger.debug("K-line WebSocket task cancelled")
@@ -89,9 +94,14 @@ class BinanceWebSocketClient:
             if self.running:
                 logger.error(f"WebSocket error: {e}")
                 logger.info("Reconnecting in 5 seconds...")
-                await asyncio.sleep(5)
+                # 使用可中断的 sleep
+                for _ in range(50):  # 5秒 = 50 * 0.1秒
+                    if not self.running:
+                        break
+                    await asyncio.sleep(0.1)
                 # 递归重连
-                await self.subscribe_klines(symbols, interval, callback)
+                if self.running:
+                    await self.subscribe_klines(symbols, interval, callback)
             else:
                 # 停止状态下的异常，静默处理
                 logger.debug(f"WebSocket closed during shutdown: {e}")
@@ -121,7 +131,8 @@ class BinanceWebSocketClient:
                 
                 while self.running:
                     try:
-                        message = await asyncio.wait_for(websocket.recv(), timeout=30)
+                        # 使用更短的超时以便快速响应关闭
+                        message = await asyncio.wait_for(websocket.recv(), timeout=1.0)
                         data = json.loads(message)
                         
                         if 'data' in data:
@@ -141,8 +152,14 @@ class BinanceWebSocketClient:
                                 await callback(symbol, ticker_info)
                                 
                     except asyncio.TimeoutError:
-                        if self.running:  # 只在运行时ping
+                        # 超时是正常的，检查是否应该继续运行
+                        if not self.running:
+                            break
+                        # 发送ping保持连接
+                        try:
                             await websocket.ping()
+                        except Exception:
+                            break
                     except asyncio.CancelledError:
                         # 任务被取消，正常退出
                         logger.debug("Ticker WebSocket task cancelled")
@@ -154,8 +171,14 @@ class BinanceWebSocketClient:
         except Exception as e:
             if self.running:
                 logger.error(f"Ticker WebSocket error: {e}")
-                await asyncio.sleep(5)
-                await self.subscribe_ticker(symbols, callback)
+                # 使用可中断的 sleep
+                for _ in range(50):  # 5秒 = 50 * 0.1秒
+                    if not self.running:
+                        break
+                    await asyncio.sleep(0.1)
+                # 递归重连
+                if self.running:
+                    await self.subscribe_ticker(symbols, callback)
             else:
                 # 停止状态下的异常，静默处理
                 logger.debug(f"Ticker WebSocket closed during shutdown: {e}")
@@ -223,8 +246,22 @@ class BinanceWebSocketClient:
         logger.info("Stopping WebSocket client...")
         self.running = False
         
+        # 取消所有运行中的任务
+        for task in self.tasks:
+            try:
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            except Exception as e:
+                logger.debug(f"Error cancelling task: {e}")
+        
+        self.tasks.clear()
+        
         # 主动关闭所有WebSocket连接
-        for ws in self.active_websockets:
+        for ws in list(self.active_websockets):  # 复制列表避免迭代时修改
             try:
                 await ws.close()
             except Exception as e:

@@ -42,10 +42,10 @@ class OpenAIProvider(BaseLLMProvider):
         # Use custom base_url if provided (env var or parameter)
         if base_url:
             client_kwargs["base_url"] = base_url
-            logger.info(f"Using custom OpenAI-compatible API: {base_url}")
+            # Using custom API silently
         elif settings.openai_base_url:
             client_kwargs["base_url"] = settings.openai_base_url
-            logger.info(f"Using custom OpenAI-compatible API from env: {settings.openai_base_url}")
+            # Using custom API from env silently
         
         self.client = OpenAI(**client_kwargs)
         self.model = model
@@ -68,15 +68,26 @@ class OpenAIProvider(BaseLLMProvider):
             max_tokens = kwargs.get('max_tokens', 4000)
             use_stream = kwargs.get('stream', True)
             
+            # Build messages list
+            messages = []
+            
+            # Add system message if provided
+            if 'system' in kwargs:
+                messages.append({
+                    "role": "system",
+                    "content": kwargs['system']
+                })
+            
+            # Add user message
+            messages.append({
+                "role": "user",
+                "content": prompt
+            })
+            
             # Build request parameters
             request_params = {
                 "model": self.model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
+                "messages": messages,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
@@ -90,7 +101,7 @@ class OpenAIProvider(BaseLLMProvider):
             elif 'thinking_budget' in kwargs:
                 # Convenience: auto-wrap thinking_budget in extra_body
                 request_params["extra_body"] = {"thinking_budget": kwargs['thinking_budget']}
-                logger.info(f"🧠 Using thinking_budget={kwargs['thinking_budget']}")
+                # Using thinking_budget silently
             
             # Use streaming to capture reasoning_content (if available)
             if use_stream:
@@ -110,7 +121,7 @@ class OpenAIProvider(BaseLLMProvider):
                 result = {'content': content}
                 if reasoning_content:
                     result['reasoning_content'] = reasoning_content
-                    logger.info(f"📊 Extracted reasoning_content from stream: {len(reasoning_content)} chars")
+                    # Reasoning content extracted from stream silently
                 
                 return result
             
@@ -124,7 +135,7 @@ class OpenAIProvider(BaseLLMProvider):
                 # Check if reasoning_content exists in the response
                 if hasattr(message, 'reasoning_content') and message.reasoning_content:
                     result['reasoning_content'] = message.reasoning_content
-                    logger.info(f"📊 Extracted reasoning_content: {len(message.reasoning_content)} chars")
+                    # Reasoning content extracted silently
                 
                 return result
         
@@ -146,11 +157,14 @@ class AnthropicProvider(BaseLLMProvider):
             temperature = kwargs.get('temperature', 0.3)
             max_tokens = kwargs.get('max_tokens', 4000)
             
+            # Use provided system prompt or default
+            system_prompt = kwargs.get('system', "You are an expert cryptocurrency trader. Analyze market data and make trading decisions. Always output valid JSON only, no other text.")
+            
             message = self.client.messages.create(
                 model=self.model,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                system="You are an expert cryptocurrency trader. Analyze market data and make trading decisions. Always output valid JSON only, no other text.",
+                system=system_prompt,
                 messages=[
                     {
                         "role": "user",
@@ -220,7 +234,7 @@ class TradingLLM:
         self.primary = self._get_provider(primary_provider, model, base_url)
         self.fallback = self._get_provider(fallback_provider, model, base_url) if fallback_provider else None
         self.is_reasoning_model = is_reasoning_model
-        logger.info(f"TradingLLM initialized: is_reasoning_model={is_reasoning_model}")
+        # Model initialization logged silently
     
     def _get_provider(self, provider_name: str, model: Optional[str], base_url: Optional[str] = None) -> BaseLLMProvider:
         """Get LLM provider instance."""
@@ -279,8 +293,6 @@ class TradingLLM:
         One-step decision for reasoning models (e.g., DeepSeek-R1, o1).
         Model generates thinking + JSON in single call.
         """
-        logger.info("🧠 Using ONE-STEP process (reasoning model)")
-        
         for attempt in range(max_retries):
             try:
                 # Try primary provider (returns Dict with 'content' and optionally 'reasoning_content')
@@ -294,21 +306,21 @@ class TradingLLM:
                 thinking = ""
                 if reasoning_from_api:
                     thinking = reasoning_from_api
-                    logger.info(f"✅ Using reasoning_content from API: {len(thinking)} characters")
+                    # Reasoning content extracted silently
                 else:
                     thinking = self._extract_thinking(response_text)
                     if thinking:
-                        logger.info(f"✅ Extracted thinking from <think> tags: {len(thinking)} characters")
+                        pass  # Thinking extracted from tags silently
                     else:
                         logger.warning("⚠️ No reasoning_content or <think> tags found!")
                 
                 if thinking:
-                    logger.info(f"Thinking preview: {thinking[:200]}...")
+                    pass  # Thinking preview shown by trading loop
                 
                 # Parse and validate with Langchain + Pydantic
                 decisions = self._parse_with_pydantic(response_text)
                 
-                logger.info(f"✅ LLM decision generated and validated (attempt {attempt + 1})")
+                # Decision validated successfully
                 
                 # Return decisions with thinking and raw response
                 return {
@@ -324,7 +336,7 @@ class TradingLLM:
                 # Try fallback provider
                 if self.fallback and attempt == max_retries - 1:
                     try:
-                        logger.info("🔄 Trying fallback provider...")
+                        logger.warning("⚠️ Trying fallback provider...")
                         fallback_dict = await self.fallback.generate(prompt, **kwargs)
                         fallback_text = fallback_dict.get('content', '')
                         fallback_thinking = fallback_dict.get('reasoning_content', '') or self._extract_thinking(fallback_text)
@@ -575,25 +587,46 @@ Your JSON decision:"""
         """Parse LLM response to JSON."""
         try:
             # Step 1: Remove reasoning/thinking tags (for reasoning models like o1)
-            # These models wrap their reasoning in <think></think> tags
             if "<think>" in response_text and "</think>" in response_text:
-                # Remove everything between <think> and </think>
                 import re
                 response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
-                logger.debug("Removed <think></think> tags from response")
             
-            # Step 2: Try to extract JSON if wrapped in markdown code blocks
-            if "```json" in response_text:
-                json_start = response_text.find("```json") + 7
-                json_end = response_text.find("```", json_start)
-                response_text = response_text[json_start:json_end].strip()
-            elif "```" in response_text:
-                json_start = response_text.find("```") + 3
-                json_end = response_text.find("```", json_start)
-                response_text = response_text[json_start:json_end].strip()
+            # Step 2: Try to extract JSON from text (更强力的提取)
+            import re
             
-            # Step 3: Clean up whitespace
+            # 方法1: 查找 ```json 代码块
+            json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+            if json_match:
+                response_text = json_match.group(1).strip()
+            
+            # 方法2: 查找普通 ``` 代码块中的JSON
+            elif '```' in response_text:
+                json_start = response_text.find("```")
+                json_end = response_text.find("```", json_start + 3)
+                if json_end != -1:
+                    potential_json = response_text[json_start + 3:json_end].strip()
+                    # 如果是JSON格式（以{开头）
+                    if potential_json.startswith('{'):
+                        response_text = potential_json
+            
+            # 方法3: 查找JSON对象（最外层的大括号）
+            else:
+                # 查找第一个 { 到最后一个 } 之间的内容
+                first_brace = response_text.find('{')
+                if first_brace != -1:
+                    # 从后往前找最后一个 }
+                    last_brace = response_text.rfind('}')
+                    if last_brace != -1 and last_brace > first_brace:
+                        potential_json = response_text[first_brace:last_brace + 1]
+                        # 验证是否是有效的JSON结构
+                        if potential_json.count('{') == potential_json.count('}'):
+                            response_text = potential_json
+            
+            # Step 3: Clean up whitespace and common issues
             response_text = response_text.strip()
+            # 移除可能的markdown格式
+            response_text = re.sub(r'^```json\s*', '', response_text)
+            response_text = re.sub(r'\s*```\s*$', '', response_text)
             
             # Step 4: Parse JSON
             decision = json.loads(response_text)
@@ -601,21 +634,6 @@ Your JSON decision:"""
             # Step 5: Validate structure
             if not isinstance(decision, dict):
                 raise ValueError(f"Expected dict, got {type(decision)}")
-            
-            # Log structure for debugging
-            logger.info(f"Parsed decision structure: {len(decision)} top-level keys")
-            for key, value in list(decision.items())[:3]:  # Log first 3 entries
-                logger.debug(f"  Key '{key}': type={type(value)}, value_type={type(value) if isinstance(value, dict) else 'not_dict'}")
-            
-            # Check if it's the expected format (coin -> decision dict)
-            valid_coins = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE']
-            coin_keys = [k for k in decision.keys() if k in valid_coins]
-            
-            if coin_keys:
-                logger.info(f"Found {len(coin_keys)} coin decisions: {coin_keys}")
-            else:
-                logger.warning(f"No valid coin keys found. Keys: {list(decision.keys())[:10]}")
-                logger.warning(f"This might not be the expected format!")
             
             return decision
         

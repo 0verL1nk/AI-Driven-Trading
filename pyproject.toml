@@ -1,0 +1,61 @@
+[project]
+name = "ai-trading-bot"
+version = "1.0.0"
+description = "AI-driven cryptocurrency trading system based on nof1.ai architecture"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+
+dependencies = [
+    "python-dotenv==1.0.0",
+    "pydantic==2.5.0",
+    "pydantic-settings==2.1.0",
+    "ccxt==4.2.10",
+    "pandas==2.1.4",
+    "numpy==1.26.2",
+    "openai==1.6.1",
+    "anthropic==0.8.1",
+    "langchain==0.1.0",
+    "langchain-openai==0.0.2",
+    "psycopg2-binary==2.9.9",
+    "sqlalchemy==2.0.23",
+    "alembic==1.13.1",
+    "pymysql==1.1.0",
+    "redis==5.0.1",
+    "hiredis==2.3.2",
+    "fastapi==0.109.0",
+    "uvicorn==0.27.0",
+    "websockets==12.0",
+    "aiohttp==3.9.1",
+    "prometheus-client==0.19.0",
+    "python-telegram-bot==20.7",
+    "requests==2.31.0",
+    "python-dateutil==2.8.2",
+    "pytz==2023.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==7.4.3",
+    "pytest-asyncio==0.23.2",
+    "black==23.12.1",
+    "flake8==7.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+
+
+

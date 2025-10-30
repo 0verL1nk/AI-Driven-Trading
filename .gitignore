@@ -1,6 +1,6 @@
 # Environment
 .env
-venv/
+.venv/
 env/
 ENV/
 
@@ -39,3 +39,4 @@ htmlcov/
 *.csv
 *.parquet
 
+uv.lock

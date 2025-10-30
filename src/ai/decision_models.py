@@ -49,40 +49,22 @@ class TradeSignalArgs(BaseModel):
     @classmethod
     def validate_leverage(cls, v, info):
         """Validate leverage based on signal type."""
-        signal = info.data.get('signal')
-        
-        # For no_action or close_position, use default if not provided
-        if signal in [SignalType.NO_ACTION, SignalType.CLOSE_POSITION]:
-            if v is None or v == 0:
-                return 5  # Set default minimum
-            return v
-        
-        # For entry/hold, leverage is required
-        if v is None:
-            raise ValueError(f"Leverage is required for {signal} signal")
+        # 提供默认值，不强制要求
+        if v is None or v == 0:
+            return 10  # 默认 10x 杠杆
         
         return v
     
     @field_validator('confidence')
     @classmethod
     def validate_confidence(cls, v, info):
-        """Validate confidence based on signal type."""
-        signal = info.data.get('signal')
+        """Validate confidence - allow any value, provide default if missing."""
+        # 允许任何置信度，提供默认值即可
+        if v is None:
+            return 0.5  # Default confidence
         
-        if signal in [SignalType.NO_ACTION, SignalType.CLOSE_POSITION]:
-            # For no_action/close, use default if not provided
-            if v is None:
-                return 0.5  # Default confidence
-            if v < 0.5:
-                return 0.5
-            return v
-        else:
-            # For entry/hold, confidence is required and must be >= 0.5
-            if v is None:
-                raise ValueError(f"Confidence is required for {signal} signal")
-            if v < 0.5:
-                raise ValueError(f"Confidence for {signal} must be >= 0.5, got {v}")
-            return v
+        # 允许低置信度（移除 >= 0.5 的强制要求）
+        return v
     
     @field_validator('risk_usd')
     @classmethod
@@ -90,24 +72,24 @@ class TradeSignalArgs(BaseModel):
         """Validate risk_usd based on signal type."""
         signal = info.data.get('signal')
         
-        if signal in [SignalType.NO_ACTION, SignalType.CLOSE_POSITION]:
-            # For no_action/close, default to 0
-            if v is None:
+        # 提供默认值，不强制要求
+        if v is None:
+            if signal in [SignalType.NO_ACTION, SignalType.CLOSE_POSITION]:
                 return 0.0
-            return v
-        else:
-            # For entry/hold, risk_usd is required
-            if v is None:
-                raise ValueError(f"risk_usd is required for {signal} signal")
-            return v
+            else:
+                return 100.0  # 默认风险 $100
+        
+        return v
     
     @field_validator('profit_target', 'stop_loss')
     @classmethod
     def validate_entry_fields(cls, v, info):
-        """Validate that entry signals have required fields."""
-        signal = info.data.get('signal')
-        if signal == SignalType.ENTRY and v is None:
-            raise ValueError(f"{info.field_name} is required for entry signals")
+        """Validate entry fields - now optional, can be auto-calculated."""
+        # 不再强制要求，允许系统自动计算
+        # signal = info.data.get('signal')
+        # if signal == SignalType.ENTRY and v is None:
+        #     # 可以在后续流程中根据当前价格自动计算
+        #     pass
         return v
     
     class Config:

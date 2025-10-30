@@ -16,6 +16,36 @@ class PromptBuilder:
         self.call_count = 0
         self.start_time = datetime.now()
     
+    def get_system_prompt(self) -> str:
+        """
+        Get system prompt with output format requirements.
+        
+        Returns:
+            System prompt string with format instructions
+        """
+        return """You are an expert cryptocurrency trading AI. Analyze market data and make trading decisions.
+
+OUTPUT FORMAT REQUIREMENTS:
+You MUST output ONLY valid JSON. No markdown code blocks, no explanatory text, just pure JSON.
+
+Required format:
+{
+  "BTC": {
+    "coin": "BTC",
+    "signal": "entry" | "close_position" | "hold" | "no_action",
+    "confidence": 0.0-1.0,
+    "leverage": 5-15,
+    "profit_target": number (required for entry/hold),
+    "stop_loss": number (required for entry/hold),
+    "risk_usd": number,
+    "invalidation_condition": string,
+    "justification": "optional explanation"
+  },
+  "ETH": { ... }
+}
+
+CRITICAL: Your ENTIRE response must be valid JSON only. Start with { and end with }. Do not include any text before or after the JSON."""
+    
     def build_trading_prompt(
         self,
         market_data: Dict[str, Dict],
@@ -71,6 +101,7 @@ CURRENT MARKET STATE FOR ALL COINS
         last_10 = intraday.tail(10)
         
         section = f"ALL {coin} DATA\n"
+        # current_price保持原始格式，不强制格式化
         section += f"current_price = {latest['close']}, "
         section += f"current_ema20 = {latest['ema_20']:.3f}, "
         section += f"current_macd = {latest['macd']:.3f}, "
@@ -81,14 +112,14 @@ CURRENT MARKET STATE FOR ALL COINS
         section += f"Open Interest: Latest: {data['open_interest']:.2f} Average: {data['oi_average']:.2f}\n\n"
         section += f"Funding Rate: {data['funding_rate']:.6e}\n\n"
         
-        # Intraday series
-        section += "Intraday series (by minute, oldest → latest):\n\n"
-        
-        # Format mid prices as list
-        if coin in ['SOL', 'BNB', 'DOGE', 'XRP']:
-            section += f"{coin} mid prices: {self._format_list(last_10['close'])}\n\n"
-        else:
+        # Intraday series - BTC默认是3分钟，其他币种需要明确说明
+        if coin == 'BTC':
+            section += "Intraday series (by minute, oldest → latest):\n\n"
             section += f"Mid prices: {self._format_list(last_10['close'])}\n\n"
+        else:
+            # ETH, SOL, BNB, XRP, DOGE 需要明确说明是3分钟间隔
+            section += "Intraday series (3‑minute intervals, oldest → latest):\n\n"
+            section += f"{coin} mid prices: {self._format_list(last_10['close'])}\n\n"
         
         section += f"EMA indicators (20‑period): {self._format_list(last_10['ema_20'])}\n\n"
         section += f"MACD indicators: {self._format_list(last_10['macd'])}\n\n"
@@ -117,11 +148,13 @@ CURRENT MARKET STATE FOR ALL COINS
         return section
     
     def _format_list(self, series) -> str:
-        """Format pandas Series as list string matching nof1.ai format."""
+        """
+        Format pandas Series as list string matching nof1.ai format.
+        Preserves original precision from pandas Series.
+        """
         values = series.tolist()
-        # Round to appropriate decimal places
-        rounded = [round(v, 3) for v in values]
-        return str(rounded)
+        # 直接转换为列表，保持原始精度（pandas会保持float/int类型）
+        return str(values)
     
     def _format_account_section(self, account: Dict, positions: List[Dict]) -> str:
         """Format account information exactly matching nof1.ai format."""
@@ -141,110 +174,6 @@ CURRENT MARKET STATE FOR ALL COINS
             section += "No current positions.\n\n"
         
         section += f"Sharpe Ratio: {account.get('sharpe_ratio', 0):.3f}\n\n"
-        
-        # Add explicit trading philosophy guidance
-        section += "=" * 80 + "\n"
-        section += "TRADING PHILOSOPHY & STRATEGY GUIDANCE (MUST READ)\n"
-        section += "=" * 80 + "\n"
-        section += "⏰ IMPORTANT: Due to AI decision-making latency (data processing, analysis, validation),\n"
-        section += "   you are NOT suited for scalping or high-frequency trading.\n\n"
-        
-        section += "🎯 RECOMMENDED STRATEGY: SWING TRADING\n"
-        section += "   - Focus on larger price movements over hours to days\n"
-        section += "   - Target significant market moves (3%+ potential profit)\n"
-        section += "   - Avoid quick in-and-out trades that depend on precise timing\n"
-        section += "   - Quality over quantity - fewer, better-planned trades\n\n"
-        
-        section += "⏱️ MINIMUM HOLDING TIME GUIDANCE:\n"
-        section += "   - Consider positions you can hold for at least 2-4 hours\n"
-        section += "   - Ideal targets: 12-48 hours for most trades\n"
-        section += "   - Only enter if you see a clear multi-hour/day trend potential\n\n"
-        
-        section += "📈 FOCUS AREAS FOR ENTRY SIGNALS:\n"
-        section += "   - Clear trend continuations or reversals\n"
-        section += "   - Support/resistance breakouts with volume confirmation\n"
-        section += "   - Major technical pattern completions\n"
-        section += "   - Significant fundamental catalysts or market sentiment shifts\n\n"
-        
-        section += "🚫 AVOID:\n"
-        section += "   - Minute-by-minute price fluctuations\n"
-        section += "   - Scalping opportunities requiring split-second timing\n"
-        section += "   - Over-trading (multiple trades per hour)\n"
-        section += "   - Chasing small 0.5-1% moves\n\n"
-        
-        section += "💡 PATIENCE IS PROFITABLE: Wait for high-conviction setups with clear risk/reward\n"
-        section += "=" * 80 + "\n\n"
-        
-        # Add explicit risk management constraints
-        from ..config import trading_config
-        total_value = account.get('total_value', 10000)
-        max_risk_percent = trading_config.risk_params['position_sizing']['max_risk_per_trade_percent']
-        max_risk_usd = total_value * (max_risk_percent / 100)
-        min_leverage = trading_config.risk_params['leverage']['min']
-        max_leverage = trading_config.risk_params['leverage']['max']
-        min_rr_ratio = trading_config.risk_params['exit_strategy']['min_risk_reward_ratio']
-        
-        section += "=" * 80 + "\n"
-        section += "RISK MANAGEMENT RULES (MUST FOLLOW)\n"
-        section += "=" * 80 + "\n"
-        section += f"1. Maximum risk per trade: {max_risk_percent}% of account = ${max_risk_usd:.2f} USD\n"
-        section += f"   ⚠️ IMPORTANT: Your 'risk_usd' must be LESS THAN ${max_risk_usd:.2f} (not equal to it)\n\n"
-        
-        section += f"2. Leverage range: {min_leverage}x to {max_leverage}x (choose based on confidence)\n"
-        section += f"   - High confidence (0.75-1.0): use 12-15x\n"
-        section += f"   - Medium confidence (0.65-0.74): use 8-11x\n"
-        section += f"   - Low confidence (0.50-0.64): use 5-7x\n\n"
-        
-        section += f"3. Minimum risk/reward ratio: {min_rr_ratio}:1 ⚠️ THIS IS CRITICAL!\n"
-        section += f"   How to calculate (MUST follow this formula):\n"
-        section += f"   \n"
-        section += f"   For LONG positions:\n"
-        section += f"     - Risk per unit = entry_price - stop_loss\n"
-        section += f"     - Reward per unit = profit_target - entry_price\n"
-        section += f"     - Risk/Reward Ratio = Reward / Risk\n"
-        section += f"   \n"
-        section += f"   For SHORT positions:\n"
-        section += f"     - Risk per unit = stop_loss - entry_price\n"
-        section += f"     - Reward per unit = entry_price - profit_target\n"
-        section += f"     - Risk/Reward Ratio = Reward / Risk\n"
-        section += f"   \n"
-        section += f"   ✅ EXAMPLE (LONG BTC at $100,000):\n"
-        section += f"     - Entry: $100,000\n"
-        section += f"     - Stop Loss: $98,000 (2% below entry)\n"
-        section += f"     - Profit Target: $103,000 (3% above entry)\n"
-        section += f"     - Risk = $100,000 - $98,000 = $2,000\n"
-        section += f"     - Reward = $103,000 - $100,000 = $3,000\n"
-        section += f"     - R/R Ratio = $3,000 / $2,000 = 1.5 ✅ VALID\n"
-        section += f"   \n"
-        section += f"   ❌ BAD EXAMPLE (R/R too low):\n"
-        section += f"     - Entry: $100,000\n"
-        section += f"     - Stop Loss: $98,000 (risk = $2,000)\n"
-        section += f"     - Profit Target: $101,000 (reward = $1,000)\n"
-        section += f"     - R/R Ratio = $1,000 / $2,000 = 0.5 ❌ REJECTED!\n"
-        section += f"   \n"
-        section += f"   💡 TIP: To meet {min_rr_ratio}:1 ratio:\n"
-        section += f"     profit_target distance >= {min_rr_ratio} × stop_loss distance\n\n"
-        
-        section += f"4. Every 'entry' signal MUST have:\n"
-        section += f"   - stop_loss: Price level (must be < entry for long, > entry for short)\n"
-        section += f"     ⚠️ IMPORTANT: Stop loss must be at least 2% away from entry price!\n"
-        section += f"     (Too tight stop loss = very large position size = margin insufficient error)\n"
-        section += f"   - profit_target: Price level (ensure R/R >= {min_rr_ratio}:1)\n"
-        section += f"   - invalidation_condition: Clear condition like 'If price closes below X on 3-min candle'\n"
-        section += f"   - All prices must be realistic and based on current market price\n\n"
-        
-        section += f"5. For 'no_action' or 'hold' signals, you can set:\n"
-        section += f"   - risk_usd = 0\n"
-        section += f"   - leverage = {min_leverage} (minimum allowed)\n"
-        section += f"   - confidence >= 0.5\n"
-        section += f"   - stop_loss and profit_target can be 0 or null\n"
-        section += "=" * 80 + "\n\n"
-        
-        # Add Langchain auto-generated format instructions
-        section += "OUTPUT FORMAT INSTRUCTIONS\n"
-        section += "=" * 80 + "\n"
-        section += trading_parser.get_format_instructions()
-        section += "\n" + "=" * 80 + "\n"
         
         return section
 

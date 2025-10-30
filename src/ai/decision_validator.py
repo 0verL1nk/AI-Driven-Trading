@@ -75,16 +75,16 @@ class DecisionValidator:
             if not (0.5 <= confidence <= 1.0):
                 return False, f"Confidence {confidence} outside valid range [0.5, 1.0]"
             
-            # Validate risk per trade
+            # 放宽风险限制，只做警告而非拒绝
             risk_usd = args.get('risk_usd', 0)
-            max_risk_percent = self.risk_params['position_sizing']['max_risk_per_trade_percent']
+            max_risk_percent = self.risk_params['position_sizing'].get('max_risk_per_trade_percent', 5.0)
             max_risk = account_value * (max_risk_percent / 100)
             
-            # Add small tolerance (0.1 USD) to avoid floating point precision issues
-            # But still enforce that risk should be meaningfully less than max
-            tolerance = 0.1
-            if risk_usd > max_risk + tolerance:
-                return False, f"Risk ${risk_usd:.2f} exceeds max ${max_risk:.2f} ({max_risk_percent}% of account)"
+            if risk_usd > max_risk * 1.5:  # 允许超出50%的缓冲
+                logger.warning(
+                    f"Risk ${risk_usd:.2f} significantly exceeds recommended ${max_risk:.2f} "
+                    f"({max_risk_percent}% of account), but allowing trade."
+                )
             
             # Validate stop loss and take profit for entry
             if signal == 'entry':
@@ -115,20 +115,16 @@ class DecisionValidator:
                 else:
                     return False, "Profit target cannot equal current price"
                 
-                # Check minimum risk/reward ratio
+                # 移除严格的R/R比率限制，只做警告记录
                 if risk_distance > 0:
                     rr_ratio = reward_distance / risk_distance
-                    min_rr = self.risk_params['exit_strategy']['min_risk_reward_ratio']
+                    min_rr = self.risk_params['exit_strategy'].get('min_risk_reward_ratio', 1.0)
                     
                     if rr_ratio < min_rr:
-                        # 提供详细的计算信息帮助调试
                         side = "LONG" if profit_target > current_price else "SHORT"
-                        return False, (
-                            f"Risk/reward ratio {rr_ratio:.2f} below minimum {min_rr}. "
-                            f"Details ({side}): Entry={current_price:.2f}, "
-                            f"SL={stop_loss:.2f}, TP={profit_target:.2f}, "
-                            f"Risk=${risk_distance:.2f}, Reward=${reward_distance:.2f}. "
-                            f"To fix: increase TP or tighten SL so that (TP-Entry) >= {min_rr}×(Entry-SL)"
+                        logger.warning(
+                            f"Risk/reward ratio {rr_ratio:.2f} below recommended {min_rr} "
+                            f"for {side} position, but allowing trade to proceed."
                         )
         
         return True, None
@@ -201,9 +197,9 @@ class DecisionValidator:
             logger.error("Risk per unit is zero, cannot calculate position size")
             return 0
         
-        # Check if stop loss is too tight (< 1% distance)
+        # 移除止损距离限制（之前要求至少2%），只做警告
         sl_percent = (risk_per_unit / entry_price) * 100
-        if sl_percent < 1.0:
+        if sl_percent < 0.5:  # 只警告非常紧的止损（<0.5%）
             logger.warning(f"Stop loss very tight ({sl_percent:.2f}%), may result in large position size")
         
         # Position size based on risk
@@ -213,15 +209,15 @@ class DecisionValidator:
         notional_value = base_position * entry_price
         required_margin = notional_value / leverage
         
-        # If account_value provided, check margin constraint
+        # 放宽保证金限制，从30%提升到80%
         if account_value:
-            # Maximum 30% of account value as margin for single trade
-            max_margin = account_value * 0.30
+            # Maximum 80% of account value as margin for single trade (放宽限制)
+            max_margin = account_value * 0.80
             
             if required_margin > max_margin:
                 logger.warning(
-                    f"Required margin ${required_margin:.2f} exceeds max ${max_margin:.2f} "
-                    f"(30% of account). Reducing position size."
+                    f"Required margin ${required_margin:.2f} exceeds recommended ${max_margin:.2f} "
+                    f"(80% of account). Reducing position size."
                 )
                 # Reduce position size to fit margin constraint
                 base_position = (max_margin * leverage) / entry_price

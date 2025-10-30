@@ -1,0 +1,80 @@
+# .dockerignore
+# Ignore unnecessary files to reduce build context
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Frontend (not needed for backend)
+frontend/
+node_modules/
+.next/
+out/
+
+# Logs and databases
+logs/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Git
+.git/
+.gitignore
+
+# Docker
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config templates (keep actual .env outside)
+.env.*
+*.template
+*example
+
+# Static files (will be created at runtime)
+static/
+
+# Temporary files
+*.tmp
+*.bak
+*.log
+
+# UV files (local development)
+.venv/
+uv.lock
+
+

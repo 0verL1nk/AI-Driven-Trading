@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import sys
+import signal
 from pathlib import Path
 
 # Add src to path
@@ -49,6 +50,29 @@ async def main():
     # Import config for display
     from src.config import settings, trading_config
     
+    # Prepare database configuration from environment variables
+    db_type = settings.db_type
+    
+    db_kwargs = {}
+    
+    if db_type == 'sqlite':
+        db_kwargs['db_path'] = 'trading_data.db'
+    elif db_type == 'mysql':
+        # Check if required parameters are provided via environment variables
+        if not all([settings.db_host, settings.db_user, settings.db_password, settings.db_name]):
+            logger.error("Missing required MySQL parameters!")
+            logger.error("Please set environment variables: DB_HOST, DB_USER, DB_PASSWORD, DB_NAME")
+            sys.exit(1)
+        
+        db_kwargs['host'] = settings.db_host
+        db_kwargs['port'] = settings.db_port if settings.db_port else 3306
+        db_kwargs['user'] = settings.db_user
+        db_kwargs['password'] = settings.db_password
+        db_kwargs['database'] = settings.db_name
+        # SSL configuration
+        db_kwargs['ssl_mode'] = settings.db_ssl_mode or 'REQUIRED'
+        db_kwargs['ssl_ca'] = settings.db_ssl_ca
+    
     # Display configuration
     logger.info("\n" + "=" * 80)
     logger.info("SYSTEM CONFIGURATION")
@@ -87,26 +111,53 @@ async def main():
         initial_balance = trading_config.trading_config['paper_trading']['initial_balance']
         logger.info(f"Paper Trading Settings:")
         logger.info(f"  Initial Balance: ${initial_balance:,.2f} USDT")
+    logger.info("")
+    logger.info("Database Configuration:")
+    logger.info(f"  Type: {db_type.upper()}")
+    if db_type == 'sqlite':
+        logger.info(f"  Path: {db_kwargs.get('db_path', 'trading_data.db')}")
+    else:
+        logger.info(f"  Host: {db_kwargs.get('host', 'N/A')}:{db_kwargs.get('port', 'N/A')}")
+        logger.info(f"  Database: {db_kwargs.get('database', 'N/A')}")
+    logger.info("")
     logger.info("=" * 80 + "\n")
     
     # Create and start trading bot
-    bot = TradingBot()
+    bot = TradingBot(db_type=db_type, **db_kwargs)
+    
+    # Set up signal handlers for graceful shutdown (decoupled)
+    shutdown_event = asyncio.Event()
+    
+    def signal_handler(signum, frame):
+        """Handle interrupt signals (Ctrl+C)."""
+        logger.info("\n⚠️  Received interrupt signal (Ctrl+C), initiating graceful shutdown...")
+        shutdown_event.set()
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     try:
-        await bot.start()
+        # Start bot with shutdown event
+        await bot.start(shutdown_event=shutdown_event)
     except KeyboardInterrupt:
-        logger.info("\nReceived interrupt signal, shutting down...")
-        # Gracefully shutdown the bot
+        logger.info("\n⚠️  Keyboard interrupt received, shutting down gracefully...")
         await bot.shutdown()
     except asyncio.CancelledError:
-        # Handle asyncio task cancellation (from Ctrl+C)
-        logger.info("Tasks cancelled, shutting down gracefully...")
+        logger.info("⚠️  Tasks cancelled, shutting down gracefully...")
         await bot.shutdown()
     except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
+        logger.error(f"❌ Fatal error: {e}", exc_info=True)
+        await bot.shutdown()
         sys.exit(1)
+    finally:
+        logger.info("👋 Trading bot stopped")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n👋 Shutdown complete. Goodbye!")
+        sys.exit(0)
 

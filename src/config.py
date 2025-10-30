@@ -31,6 +31,14 @@ class Settings(BaseSettings):
         default="postgresql://trading_user:password@localhost:5432/trading_db",
         env="DATABASE_URL"
     )
+    db_type: str = Field(default="sqlite", env="DB_TYPE")
+    db_host: Optional[str] = Field(default=None, env="DB_HOST")
+    db_port: Optional[int] = Field(default=None, env="DB_PORT")
+    db_user: Optional[str] = Field(default=None, env="DB_USER")
+    db_password: Optional[str] = Field(default=None, env="DB_PASSWORD")
+    db_name: Optional[str] = Field(default=None, env="DB_NAME")
+    db_ssl_mode: Optional[str] = Field(default="REQUIRED", env="DB_SSL_MODE")  # REQUIRED, DISABLED, PREFERRED
+    db_ssl_ca: Optional[str] = Field(default=None, env="DB_SSL_CA")  # Path to CA certificate
     
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0", env="REDIS_URL")
