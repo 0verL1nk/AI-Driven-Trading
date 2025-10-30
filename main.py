@@ -17,16 +17,12 @@ def setup_logging():
     log_format = '%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s'
     date_format = '%Y-%m-%d %H:%M:%S'
     
-    # Create logs directory
-    Path("logs").mkdir(exist_ok=True)
-    
-    # Configure logging
+    # Configure logging - only console output
     logging.basicConfig(
         level=logging.INFO,
         format=log_format,
         datefmt=date_format,
         handlers=[
-            logging.FileHandler('logs/trading.log'),
             logging.StreamHandler(sys.stdout)
         ]
     )
