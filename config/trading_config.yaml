@@ -36,7 +36,7 @@ ai:
                 # 注：也可通过环境变量OPENAI_BASE_URL配置
   temperature: 0.3  # 降低随机性，让AI更保守和一致
   max_tokens: 9000
-  decision_interval_minutes: 3  # 3分钟决策一次（避免过度交易）
+  decision_interval_minutes: 1 
   enable_chain_of_thought: true
   multi_agent_validation: false  # Enable for critical decisions
   
